@@ -7,6 +7,9 @@
 #define AIODIO_COMMON_H__
 
 #include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/mman.h>
 #include "tst_test.h"
 
 static inline char *check_zero(char *buf, int size)
@@ -49,6 +52,35 @@ static inline void io_append(const char *path, char pattern, int flags, size_t b
 
 	free(bufptr);
 	SAFE_CLOSE(fd);
+}
+
+/*
+ * This code tries to create dirty free blocks on
+ * the HDD so there is a chance that blocks to be allocated
+ * for a file are filled with something else than zeroes.
+ *
+ * The usefulness of this is IMHO questionable.
+ */
+static inline void dirty_freeblocks(int size)
+{
+	char *filename = "dirty_file";
+	int fd;
+	void *p;
+	int pg;
+
+	pg = getpagesize();
+	size = ((size + pg - 1) / pg) * pg;
+
+	fd = SAFE_OPEN(filename, O_CREAT | O_RDWR, 0600);
+	SAFE_FTRUNCATE(fd, size);
+
+	p = SAFE_MMAP(NULL, size, PROT_WRITE | PROT_READ, MAP_SHARED | MAP_FILE, fd, 0);
+	memset(p, 0xaa, size);
+	msync(p, size, MS_SYNC);
+	munmap(p, size);
+
+	SAFE_CLOSE(fd);
+	SAFE_UNLINK(filename);
 }
 
 #endif /* AIODIO_COMMON_H__ */
