@@ -457,15 +457,17 @@ NOTE: The test parameters must not collide with common test parameters defined
 [source,c]
 -------------------------------------------------------------------------------
 int tst_parse_int(const char *str, int *val, int min, int max);
+int tst_parse_long(const char *str, long *val, long min, long max);
 int tst_parse_float(const char *str, float *val, float min, float max);
+int tst_parse_filesize(const char *str, long long *val, long long min, long long max);
 -------------------------------------------------------------------------------
 
 Helpers for parsing the strings returned in the 'struct tst_option'.
 
-Both return zero on success and 'errno', mostly 'EINVAL' or 'ERANGE', on
+Helpers return zero on success and 'errno', mostly 'EINVAL' or 'ERANGE', on
 failure.
 
-Both functions are no-op if 'str' is 'NULL'.
+Helpers functions are no-op if 'str' is 'NULL'.
 
 The valid range for result includes both 'min' and 'max'.
 
