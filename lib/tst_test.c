@@ -474,6 +474,7 @@ static struct option {
 static void print_help(void)
 {
 	unsigned int i;
+	char msg[1024];
 
 	/* see doc/user-guide.txt, which lists also shell API variables */
 	fprintf(stderr, "Environment Variables\n");
@@ -498,8 +499,13 @@ static void print_help(void)
 	if (!tst_test->options)
 		return;
 
-	for (i = 0; tst_test->options[i].optstr; i++)
-		fprintf(stderr, "%s\n", tst_test->options[i].help);
+	for (i = 0; tst_test->options[i].optstr; i++) {
+		snprintf(msg, 1024, "-%c\t %s",
+			tst_test->options[i].optstr[0],
+			tst_test->options[i].help);
+
+		fprintf(stderr, "%s\n", msg);
+	}
 }
 
 static void print_test_tags(void)
