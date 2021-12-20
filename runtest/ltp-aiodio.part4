@@ -61,8 +61,8 @@ DIT001 dio_truncate
 DIT002 dio_truncate
 #Running read_checkzero
 #gread_checkzero
-#Running ltp-diorh
-DOR000 ltp-diorh $TMPDIR/aiodio.$$/file2
-DOR001 ltp-diorh $TMPDIR/aiodio.$$/file3
-DOR002 ltp-diorh $TMPDIR/aiodio.$$/file4
-DOR003 ltp-diorh $TMPDIR/aiodio.$$/file5
+#Running dio_read
+DOR000 dio_read
+DOR001 dio_read
+DOR002 dio_read
+DOR003 dio_read
