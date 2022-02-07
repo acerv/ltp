@@ -27,6 +27,7 @@
 #include "tst_cmd.h"
 #include "tst_cpu.h"
 #include "tst_process_state.h"
+#include "tst_thread_state.h"
 #include "tst_atomic.h"
 #include "tst_kvercmp.h"
 #include "tst_kernel.h"
