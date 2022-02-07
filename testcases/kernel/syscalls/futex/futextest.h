@@ -16,51 +16,10 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
-#include <linux/futex.h>
 #include "lapi/futex.h"
 #include "tst_timer.h"
 
 #define FUTEX_INITIALIZER 0
-
-#ifndef FUTEX_CMP_REQUEUE
-# define FUTEX_CMP_REQUEUE	4
-#endif
-#ifndef FUTEX_WAKE_OP
-# define FUTEX_WAKE_OP		5
-#endif
-#ifndef FUTEX_LOCK_PI
-# define FUTEX_LOCK_PI		6
-#endif
-#ifndef FUTEX_UNLOCK_PI
-# define FUTEX_UNLOCK_PI	7
-#endif
-#ifndef FUTEX_WAIT_BITSET
-# define FUTEX_WAIT_BITSET	9
-#endif
-#ifndef FUTEX_WAKE_BITSET
-# define FUTEX_WAKE_BITSET	10
-#endif
-#ifndef FUTEX_WAIT_REQUEUE_PI
-# define FUTEX_WAIT_REQUEUE_PI	11
-#endif
-#ifndef FUTEX_CMP_REQUEUE_PI
-# define FUTEX_CMP_REQUEUE_PI	12
-#endif
-#ifndef FUTEX_PRIVATE_FLAG
-# define FUTEX_PRIVATE_FLAG	128
-#endif
-#ifndef FUTEX_WAIT_REQUEUE_PI_PRIVATE
-# define FUTEX_WAIT_REQUEUE_PI_PRIVATE	(FUTEX_WAIT_REQUEUE_PI | \
-					 FUTEX_PRIVATE_FLAG)
-#endif
-#ifndef FUTEX_REQUEUE_PI_PRIVATE
-# define FUTEX_CMP_REQUEUE_PI_PRIVATE	(FUTEX_CMP_REQUEUE_PI | \
-					 FUTEX_PRIVATE_FLAG)
-#endif
-
-#ifndef FUTEX_CLOCK_REALTIME
-# define FUTEX_CLOCK_REALTIME 256
-#endif
 
 enum futex_fn_type {
 	FUTEX_FN_FUTEX,
@@ -73,6 +32,21 @@ struct futex_test_variants {
 	int (*gettime)(clockid_t clk_id, void *ts);
 	char *desc;
 };
+
+static inline struct futex_test_variants futex_variants(void)
+{
+	struct futex_test_variants variants[] = {
+	#if (__NR_futex != __LTP__NR_INVALID_SYSCALL)
+		{ .fntype = FUTEX_FN_FUTEX, .desc = "syscall with old kernel spec" },
+	#endif
+
+	#if (__NR_futex_time64 != __LTP__NR_INVALID_SYSCALL)
+		{ .fntype = FUTEX_FN_FUTEX64, .desc = "syscall time64 with kernel spec" },
+	#endif
+	};
+
+	return variants[tst_variant];
+}
 
 static inline void futex_supported_by_kernel(enum futex_fn_type fntype)
 {
