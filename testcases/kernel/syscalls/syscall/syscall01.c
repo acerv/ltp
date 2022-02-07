@@ -62,20 +62,11 @@ static void verify_getgid(void)
 	}
 }
 
-
-static void (*tcases[])(void) = {
-	verify_getpid,
-	verify_getuid,
-	verify_getgid,
-};
-
-static void verify_syscall(unsigned int n)
-{
-	tcases[n]();
-}
-
 static struct tst_test test = {
-	.test = verify_syscall,
-	.tcnt = ARRAY_SIZE(tcases),
+	.tests = (void (*[])(void)) {
+		verify_getpid,
+		verify_getuid,
+		verify_getgid,
+		NULL,
+	},
 };
-

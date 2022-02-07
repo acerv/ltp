@@ -242,6 +242,7 @@ struct tst_test {
 
 	void (*test)(unsigned int test_nr);
 	void (*test_all)(void);
+	void (**tests)(void);
 
 	/* Syscall name used by the timer measurement library */
 	const char *scall;

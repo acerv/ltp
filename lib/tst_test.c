@@ -900,6 +900,14 @@ static void assert_test_fn(void)
 	if (tst_test->sample)
 		cnt++;
 
+	if (tst_test->tests) {
+		cnt++;
+
+		if (!tst_test->tests[0]) {
+			tst_brk(TBROK, "The tests[] must have at least one test");
+		}
+	}
+
 	if (!cnt)
 		tst_brk(TBROK, "No test function specified");
 
@@ -1247,12 +1255,26 @@ static void do_cleanup(void)
 
 static void run_tests(void)
 {
-	unsigned int i;
+	unsigned int i = 0, go = 1;
 	struct results saved_results;
 
-	if (!tst_test->test) {
+	while (go) {
 		saved_results = *results;
-		tst_test->test_all();
+
+		if (tst_test->test_all) {
+			tst_test->test_all();
+			go = 0;
+		} else if (tst_test->test) {
+			tst_test->test(i);
+
+			if (++i >= tst_test->tcnt)
+				go = 0;
+		} else if (tst_test->tests) {
+			tst_test->tests[i]();
+
+			if (!tst_test->tests[++i])
+				go = 0;
+		}
 
 		if (getpid() != main_pid) {
 			exit(0);
@@ -1262,21 +1284,6 @@ static void run_tests(void)
 
 		if (results_equal(&saved_results, results))
 			tst_brk(TBROK, "Test haven't reported results!");
-		return;
-	}
-
-	for (i = 0; i < tst_test->tcnt; i++) {
-		saved_results = *results;
-		tst_test->test(i);
-
-		if (getpid() != main_pid) {
-			exit(0);
-		}
-
-		tst_reap_children();
-
-		if (results_equal(&saved_results, results))
-			tst_brk(TBROK, "Test %i haven't reported results!", i);
 	}
 }
 
