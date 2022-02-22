@@ -22,12 +22,15 @@ static void run(void)
 	pid_t pidchild;
 
 	pidchild = SAFE_FORK();
-	if (!pidchild)
-		exit(123);
+	if (!pidchild) {
+		int zero = 0;
+		int a = 100 / zero;
+		return;
+	}
 
-	TST_EXP_PASS(waitid(P_ALL, getpid(), infop, WEXITED));
+	TST_EXP_PASS(waitid(P_ALL, pidchild, infop, WEXITED));
 	TST_EXP_EQ_LI(infop->si_pid, pidchild);
-	TST_EXP_EQ_LI(infop->si_status, 123);
+	TST_EXP_EQ_LI(infop->si_status, SIGFPE);
 	TST_EXP_EQ_LI(infop->si_signo, SIGCHLD);
 	TST_EXP_EQ_LI(infop->si_code, CLD_EXITED);
 }
