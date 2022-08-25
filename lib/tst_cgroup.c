@@ -1442,3 +1442,59 @@ int safe_cg_occursin(const char *const file, const int lineno,
 
 	return !!strstr(buf, needle);
 }
+
+void safe_cg_setxattr(const char *const file, const int lineno,
+			const struct tst_cg_group *cg,
+			const char *const file_name,
+			const char *name,
+			const void *value,
+			size_t size,
+			int flags)
+{
+	const struct cgroup_file *const cfile =
+		cgroup_file_find(file, lineno, file_name);
+	struct cgroup_dir *const *dir;
+	const char *alias;
+	char path[PATH_MAX];
+
+	for_each_dir(cg, cfile->ctrl_indx, dir) {
+		alias = cgroup_file_alias(cfile, *dir);
+		if (!alias)
+			continue;
+
+		sprintf(path, "%s/%s",
+			tst_decode_fd((*dir)->dir_fd),
+			file_name);
+
+		safe_setxattr(file, lineno, path, name, value, size, flags);
+	}
+}
+
+ssize_t safe_cg_getxattr(const char *const file, const int lineno,
+			const struct tst_cg_group *cg,
+			const char *const file_name,
+			const char *name,
+			void *value,
+			size_t size)
+{
+	const struct cgroup_file *const cfile =
+		cgroup_file_find(file, lineno, file_name);
+	struct cgroup_dir *const *dir;
+	const char *alias;
+	char path[PATH_MAX];
+	ssize_t ret = 0;
+
+	for_each_dir(cg, cfile->ctrl_indx, dir) {
+		alias = cgroup_file_alias(cfile, *dir);
+		if (!alias)
+			continue;
+
+		sprintf(path, "%s/%s",
+			tst_decode_fd((*dir)->dir_fd),
+			file_name);
+
+		ret = safe_getxattr(file, lineno, path, name, value, size);
+	}
+
+	return ret;
+}

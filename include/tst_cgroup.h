@@ -251,4 +251,27 @@ int safe_cg_occursin(const char *file, const int lineno,
 			 const char *const file_name,
 			 const char *const needle);
 
+#define SAFE_CG_SETXATTR(cg, file_name, name, value, size, flags) \
+	safe_cg_setxattr(__FILE__, __LINE__, \
+			(cg), (file_name), (name), (value), (size), (flags))
+
+void safe_cg_setxattr(const char *const file, const int lineno,
+			const struct tst_cg_group *cg,
+			const char *const file_name,
+			const char *name,
+			const void *value,
+			size_t size,
+			int flags);
+
+#define SAFE_CG_GETXATTR(cg, file_name, name, value, size) \
+	safe_cg_getxattr(__FILE__, __LINE__, \
+			(cg), (file_name), (name), (value), (size))
+
+ssize_t safe_cg_getxattr(const char *const file, const int lineno,
+			const struct tst_cg_group *cg,
+			const char *const file_name,
+			const char *name,
+			void *value,
+			size_t size);
+
 #endif /* TST_CGROUP_H */
