@@ -472,8 +472,7 @@ static void finish_io(struct thread_info *t, struct io_unit *io, long result,
 	t->num_global_pending--;
 	check_finished_io(io);
 
-	if (oper->num_pending == 0 &&
-	    (oper->started_ios == oper->total_ios || oper->stonewalled)) {
+	if (oper->num_pending == 0) {
 		print_time(oper);
 	}
 }
@@ -1026,7 +1025,7 @@ static void global_thread_throughput(struct thread_info *t, char *this_stage)
 		tst_res(TINFO, "%s throughput (%.2f MB/s)", this_stage, total_mb / runtime);
 		tst_res(TINFO, "%.2f MB in %.2fs", total_mb, runtime);
 
-		if (no_stonewall)
+		if (!no_stonewall)
 			tst_res(TINFO, "min transfer %.2fMB", min_trans);
 	}
 }
@@ -1053,17 +1052,22 @@ static int *worker(struct thread_info *t)
 
 restart:
 	if (num_threads > 1) {
+		tst_res(TINFO, "thread %td pthread_mutex_lock1", t - global_thread_info);
 		pthread_mutex_lock(&stage_mutex);
 		threads_starting++;
 
 		if (threads_starting == num_threads) {
 			threads_ending = 0;
+			tst_res(TINFO, "thread %td pthread_cond_broadcast1", t - global_thread_info);
 			gettimeofday(&global_stage_start_time, NULL);
 			pthread_cond_broadcast(&stage_cond);
 		}
 
+		tst_res(TINFO, "thread %td pthread_cond_wait1", t - global_thread_info);
 		while (threads_starting != num_threads)
 			pthread_cond_wait(&stage_cond, &stage_mutex);
+
+		tst_res(TINFO, "thread %td pthread_mutex_unlock1", t - global_thread_info);
 		pthread_mutex_unlock(&stage_mutex);
 	}
 
@@ -1099,6 +1103,7 @@ restart:
 	do {
 		if (!oper)
 			break;
+		tst_res(TINFO, "thread %td io_oper_wait", t - global_thread_info);
 		io_oper_wait(t, oper);
 		oper = oper->next;
 	} while (oper != t->finished_opers);
@@ -1108,12 +1113,15 @@ restart:
 	 */
 	oper = t->finished_opers;
 	while (oper) {
-		if (!no_fsync_stages)
+		if (!no_fsync_stages) {
+			tst_res(TINFO, "thread %td SAFE_FSYNC", t - global_thread_info);
 			SAFE_FSYNC(oper->fd);
+		}
 
 		t->stage_mb_trans += oper_mb_trans(oper);
 
 		if (restart_oper(oper)) {
+			tst_res(TINFO, "thread %td oper_list_del", t - global_thread_info);
 			oper_list_del(oper, &t->finished_opers);
 			oper_list_add(oper, &t->active_opers);
 			oper = t->finished_opers;
@@ -1135,22 +1143,28 @@ restart:
 	}
 
 	if (num_threads > 1) {
+		tst_res(TINFO, "thread %td pthread_mutex_lock2", t - global_thread_info);
 		pthread_mutex_lock(&stage_mutex);
 		threads_ending++;
 
 		if (threads_ending == num_threads) {
 			threads_starting = 0;
+			tst_res(TINFO, "thread %td pthread_cond_broadcast2", t - global_thread_info);
 			pthread_cond_broadcast(&stage_cond);
 			global_thread_throughput(t, this_stage);
 		}
 
+		tst_res(TINFO, "thread %td pthread_cond_wait2", t - global_thread_info);
 		while (threads_ending != num_threads)
 			pthread_cond_wait(&stage_cond, &stage_mutex);
+
+		tst_res(TINFO, "thread %td pthread_mutex_unlock2", t - global_thread_info);
 		pthread_mutex_unlock(&stage_mutex);
 	}
 
 	/* someone got restarted, go back to the beginning */
 	if (t->active_opers && cnt < iterations) {
+		tst_res(TINFO, "thread %td Restarting iteration", t - global_thread_info);
 		iteration++;
 		goto restart;
 	}
@@ -1163,7 +1177,7 @@ restart:
 	}
 
 	if (t->num_global_pending)
-		tst_res(TINFO, "global num pending is %d", t->num_global_pending);
+		tst_res(TINFO, "thread %td global num pending is %d", t - global_thread_info, t->num_global_pending);
 
 	io_queue_release(t->io_ctx);
 
@@ -1181,8 +1195,10 @@ static int run_workers(struct thread_info *t, int num_threads)
 		SAFE_PTHREAD_CREATE(&t[i].tid, NULL, (start_routine)worker, t + i);
 
 	for (i = 0; i < num_threads; i++) {
+		tst_res(TINFO, "Joining thread %d", i);
 		SAFE_PTHREAD_JOIN(t[i].tid, &retval);
 		ret |= (intptr_t)retval;
+		tst_res(TINFO, "Thread joined %d", i);
 	}
 
 	return ret;
