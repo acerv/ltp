@@ -1,68 +1,120 @@
-/******************************************************************************
- * Copyright (c) Crackerjack Project., 2007                                   *
- * Ported to LTP by Manas Kumar Nayak <maknayak@in.ibm.com>                   *
- * Copyright (C) 2015 Cyril Hrubis <chrubis@suse.cz>                          *
- *                                                                            *
- * This program is free software;  you can redistribute it and/or modify      *
- * it under the terms of the GNU General Public License as published by       *
- * the Free Software Foundation; either version 2 of the License, or          *
- * (at your option) any later version.                                        *
- *                                                                            *
- * This program is distributed in the hope that it will be useful,            *
- * but WITHOUT ANY WARRANTY;  without even the implied warranty of            *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See                  *
- * the GNU General Public License for more details.                           *
- *                                                                            *
- * You should have received a copy of the GNU General Public License          *
- * along with this program;  if not, write to the Free Software Foundation,   *
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA           *
- *                                                                            *
- ******************************************************************************/
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Copyright (c) Crackerjack Project., 2007
+ * Ported to LTP by Manas Kumar Nayak <maknayak@in.ibm.com>
+ * Copyright (c) 2015 Linux Test Project
+ * Copyright (C) 2015 Cyril Hrubis <chrubis@suse.cz>
+ * Copyright (C) 2023 SUSE LLC Andrea Cervesato <andrea.cervesato@suse.com>
+ */
+
+/*\
+ * [Description]
+ *
+ * This test checks if exit_group() correctly ends a spawned child and all its
+ * running threads.
+ */
 
 #include <stdio.h>
-#include <errno.h>
-#include <linux/unistd.h>
-#include <sys/wait.h>
-
-#include "test.h"
-#include "safe_macros.h"
+#include <stdlib.h>
+#include "tst_safe_pthread.h"
+#include "tst_test.h"
 #include "lapi/syscalls.h"
 
-char *TCID = "exit_group01";
-int testno;
-int TST_TOTAL = 1;
+#define THREADS_NUM 10
 
-static void verify_exit_group(void)
+static pid_t *tids;
+static int *counter;
+static pthread_mutex_t *lock;
+
+static void *worker(void *arg)
 {
-	pid_t cpid, w;
-	int status;
+	int i = *((int *)arg);
 
-	cpid = fork();
-	if (cpid == -1)
-		tst_brkm(TFAIL | TERRNO, NULL, "fork failed");
+	tids[i] = tst_gettid();
 
-	if (cpid == 0) {
-		TEST(tst_syscall(__NR_exit_group, 4));
-	} else {
-		w = SAFE_WAIT(NULL, &status);
+	SAFE_PTHREAD_MUTEX_LOCK(lock);
+	tst_atomic_inc(counter);
+	SAFE_PTHREAD_MUTEX_UNLOCK(lock);
 
-		if (WIFEXITED(status) && (WEXITSTATUS(status) == 4)) {
-			tst_resm(TPASS, "exit_group() succeeded");
-		} else {
-			tst_resm(TFAIL | TERRNO,
-				 "exit_group() failed (wait status = %d)", w);
-		}
+	pause();
+
+	return arg;
+}
+
+static void spawn_threads(void)
+{
+	pthread_t threads[THREADS_NUM];
+
+	for (int i = 0; i < THREADS_NUM; i++) {
+		SAFE_PTHREAD_CREATE(&threads[i], NULL, worker, (void *)&i);
+		usleep(100);
 	}
 }
 
-int main(int ac, char **av)
+static void run(void)
 {
-	int lc;
+	pid_t pid;
+	int status;
 
-	tst_parse_opts(ac, av, NULL, NULL);
+	pid = SAFE_FORK();
+	if (!pid) {
+		spawn_threads();
 
-	for (lc = 0; TEST_LOOPING(lc); lc++)
-		verify_exit_group();
+		TEST(tst_syscall(__NR_exit_group, 4));
+		if (TST_RET == -1)
+			tst_brk(TBROK | TERRNO, "exit_group() error");
 
-	tst_exit();
+		return;
+	}
+
+	SAFE_WAITPID(pid, &status, 0);
+
+	while (*counter < THREADS_NUM)
+		usleep(100);
+
+	TST_EXP_EXPR(WIFEXITED(status) && WEXITSTATUS(status) == 4,
+		"exit_group() succeeded");
 }
+
+static void setup(void)
+{
+	tids = SAFE_MMAP(
+		NULL,
+		sizeof(pid_t) * THREADS_NUM,
+		PROT_READ | PROT_WRITE,
+		MAP_SHARED | MAP_ANONYMOUS,
+		-1, 0);
+
+	counter = SAFE_MMAP(
+		NULL,
+		sizeof(int),
+		PROT_READ | PROT_WRITE,
+		MAP_SHARED | MAP_ANONYMOUS,
+		-1, 0);
+
+	lock = SAFE_MMAP(
+		NULL,
+		sizeof(pthread_mutex_t),
+		PROT_READ | PROT_WRITE,
+		MAP_SHARED | MAP_ANONYMOUS,
+		-1, 0);
+
+	SAFE_PTHREAD_MUTEX_INIT(lock, NULL);
+}
+
+static void cleanup(void)
+{
+	SAFE_PTHREAD_MUTEX_DESTROY(lock);
+
+	SAFE_MUNMAP(tids, sizeof(pid_t) * THREADS_NUM);
+	SAFE_MUNMAP(counter, sizeof(int));
+	SAFE_MUNMAP(counter, sizeof(pthread_mutex_t));
+}
+
+static struct tst_test test = {
+	.setup = setup,
+	.cleanup = cleanup,
+	.test_all = run,
+	.forks_child = 1,
+	.needs_checkpoints = 1,
+};
