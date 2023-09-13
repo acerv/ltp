@@ -31,11 +31,11 @@
 
 #define CHECK_MQ_OPEN_RET(x) ((x) >= 0 || ((x) == -1 && errno != EMFILE))
 
+#define DEVDIR "./ltp_mqueue"
 #define MQNAME1 "/MQ1"
 #define MQNAME2 "/MQ2"
 
 static char *str_op;
-static char *devdir;
 static char *mqueue1;
 static char *mqueue2;
 static volatile int *mq_freed;
@@ -57,9 +57,9 @@ static void check_mqueue(void)
 	SAFE_MQ_CLOSE(mqd);
 	mq_freed[0] = 1;
 
-	tst_res(TINFO, "Mount %s from within child process", devdir);
+	tst_res(TINFO, "Mount %s from within child process", DEVDIR);
 
-	SAFE_MOUNT("mqueue", devdir, "mqueue", 0, NULL);
+	SAFE_MOUNT("mqueue", DEVDIR, "mqueue", 0, NULL);
 
 	SAFE_STAT(mqueue1, &statbuf);
 	tst_res(TPASS, "%s exists at first mount", mqueue1);
@@ -70,10 +70,10 @@ static void check_mqueue(void)
 	SAFE_CLOSE(rc);
 	mq_freed[1] = 1;
 
-	tst_res(TINFO, "Mount %s from within child process a second time", devdir);
+	tst_res(TINFO, "Mount %s from within child process a second time", DEVDIR);
 
-	SAFE_UMOUNT(devdir);
-	SAFE_MOUNT("mqueue", devdir, "mqueue", 0, NULL);
+	SAFE_UMOUNT(DEVDIR);
+	SAFE_MOUNT("mqueue", DEVDIR, "mqueue", 0, NULL);
 
 	SAFE_STAT(mqueue1, &statbuf);
 	tst_res(TPASS, "%s exists at second mount", mqueue1);
@@ -81,7 +81,7 @@ static void check_mqueue(void)
 	SAFE_STAT(mqueue2, &statbuf);
 	tst_res(TPASS, "%s exists at second mount", mqueue2);
 
-	SAFE_UMOUNT(devdir);
+	SAFE_UMOUNT(DEVDIR);
 
 	SAFE_MQ_UNLINK(MQNAME1);
 	mq_freed[0] = 0;
@@ -114,18 +114,13 @@ static void run(void)
 
 static void setup(void)
 {
-	char *tmpdir;
-
 	if (!str_op || (strcmp(str_op, "clone") && strcmp(str_op, "unshare")))
 		tst_brk(TCONF, "Please specify clone|unshare child isolation");
 
-	tmpdir = tst_get_tmpdir();
+	SAFE_MKDIR(DEVDIR, 0755);
 
-	SAFE_ASPRINTF(&devdir, "%s/mqueue", tmpdir);
-	SAFE_MKDIR(devdir, 0755);
-
-	SAFE_ASPRINTF(&mqueue1, "%s" MQNAME1, devdir);
-	SAFE_ASPRINTF(&mqueue2, "%s" MQNAME2, devdir);
+	SAFE_ASPRINTF(&mqueue1, "%s" MQNAME1, DEVDIR);
+	SAFE_ASPRINTF(&mqueue2, "%s" MQNAME2, DEVDIR);
 
 	mq_freed = SAFE_MMAP(NULL,
 		2 * sizeof(int),
@@ -136,17 +131,14 @@ static void setup(void)
 
 static void cleanup(void)
 {
-	if (!devdir)
-		return;
-
 	if (!access(mqueue1, F_OK))
 		SAFE_MQ_UNLINK(MQNAME1);
 
 	if (!access(mqueue2, F_OK))
 		SAFE_MQ_UNLINK(MQNAME2);
 
-	if (tst_is_mounted(devdir))
-		SAFE_UMOUNT(devdir);
+	if (tst_is_mounted(DEVDIR))
+		SAFE_UMOUNT(DEVDIR);
 
 	if (*mq_freed)
 		SAFE_MUNMAP((void *)mq_freed, 2 * sizeof(int));
