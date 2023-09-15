@@ -7,3 +7,6 @@
 [submodule "tools/kirk"]
 	path = tools/kirk
 	url = https://github.com/linux-test-project/kirk.git
+[submodule "tools/ltx/ltx"]
+	path = tools/ltx/ltx
+	url = https://github.com/acerv/ltx.git
