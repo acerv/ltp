@@ -14,13 +14,7 @@ do_test()
 {
 	ITERATIONS=${ITERATIONS:=50000}
 	tst_res TINFO "starting fsx-linux -N $ITERATIONS..."
-	fsx-linux -N $ITERATIONS testfile > fsx-out.log 2>&1
-	if [ "$?" -ne 0 ]; then
-		tst_res TFAIL "Errors have resulted from this test"
-		cat fsx-out.log
-	else
-		tst_res TPASS "fsx-linux test passed"
-	fi
+	fsx-linux -N $ITERATIONS testfile
 }
 
 . nfs_lib.sh
