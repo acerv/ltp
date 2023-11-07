@@ -1,4 +1,9 @@
-# generate ltp-version.h
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2023 SUSE LLC Andrea Cervesato <andrea.cervesato@suse.com>
+
+#############################
+# Generate ltp-version.h
+#############################
 res = run_command(['git', 'describe'], capture : true, check : false)
 
 if res.returncode() == 0
@@ -18,7 +23,9 @@ config_h = configure_file(
     configuration : {'version' : version}
 )
 
-# generate library
+#############################
+# Build library
+#############################
 headers = [
     '../include',
     '../include/old',
