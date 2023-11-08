@@ -26,12 +26,12 @@ config_h = configure_file(
 #############################
 # Build library
 #############################
-headers = [
+ltp_headers = [
     '../include',
     '../include/old',
 ]
 
-sources = [
+ltp_sources = [
     'cloner.c',
     'get_path.c',
     'parse_opts.c',
@@ -111,14 +111,15 @@ sources = [
     'tst_wallclock.c',
 ]
 
-include_dir = include_directories(headers)
+include_dir = include_directories(ltp_headers)
 thread_dep = dependency('threads')
+keyutils_dep = dependency('keyutils', required: false)
 
 lib_ltp = library(
     'ltp',
-    sources + config_h,
+    ltp_sources + config_h,
     include_directories : include_dir,
-    dependencies: thread_dep,
+    dependencies: [thread_dep, keyutils_dep],
     link_args : ['-lrt'],
     install: true,
 )
