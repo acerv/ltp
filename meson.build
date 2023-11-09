@@ -13,15 +13,20 @@ project(
     ],
 )
 
-add_project_arguments('-DLTPLIB', language : 'c')
-add_project_arguments('-pipe', language : 'c')
-add_project_arguments('-W', language : 'c')
-add_project_arguments('-fno-strict-aliasing', language : 'c')
-add_project_arguments('-Wold-style-definition', language : 'c')
-
 ###########################
 # Compiler arguments
 ###########################
+add_project_arguments(
+    [
+        '-DLTPLIB',
+        '-pipe',
+        '-W',
+        '-fno-strict-aliasing',
+        '-Wold-style-definition',
+    ],
+    language : 'c'
+)
+
 compiler = meson.get_compiler('c')
 
 code = '''
