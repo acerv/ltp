@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2023 SUSE LLC Andrea Cervesato <andrea.cervesato@suse.com>
 
+subdir('lapi')
+
 compiler = meson.get_compiler('c')
-config_h = configuration_data()
+config_data = configuration_data()
 
 ###########################
 # Declarations
@@ -17,14 +19,14 @@ config_symbols = [
 
 foreach symbol : config_symbols
     if compiler.has_header_symbol(symbol[0], symbol[1])
-        config_h.set(symbol[2], '1')
+        config_data.set(symbol[2], '1')
     endif
 endforeach
 
 ###########################
 # Headers
 ###########################
-config_headers = [
+config_dataeaders = [
     ['asm/ldt.h',            'HAVE_ASM_LDT_H'],
     ['asm/ptrace.h',         'HAVE_ASM_PTRACE_H'],
     ['cpuid.h',              'HAVE_CPUID_H'],
@@ -89,9 +91,9 @@ config_headers = [
     ['xfs/xqm.h',            'HAVE_XFS_XQM_H'],
 ]
 
-foreach header: config_headers
+foreach header: config_dataeaders
     if compiler.has_header(header[0])
-        config_h.set(header[1], '1')
+        config_data.set(header[1], '1')
     endif
 endforeach
 
@@ -168,7 +170,7 @@ config_funcs = [
 
 foreach func : config_funcs
     if compiler.has_function(func[0])
-        config_h.set(func[1], '1')
+        config_data.set(func[1], '1')
     endif
 endforeach
 
@@ -252,7 +254,7 @@ config_members = [
 
 foreach member : config_members
     if compiler.has_member(member[0], member[1], prefix: member[2])
-        config_h.set(member[3], '1')
+        config_data.set(member[3], '1')
     endif
 endforeach
 
@@ -461,7 +463,7 @@ config_types = [
     [
         'struct mount_attr',
         [
-            config_h.has('HAVE_LINUX_MOUNT_H') ?
+            config_data.has('HAVE_LINUX_MOUNT_H') ?
                 '#include <linux/mount.h>' :
                 '#include <sys/mount.h>',
         ],
@@ -476,7 +478,7 @@ config_types = [
 
 foreach type : config_types
     if compiler.has_type(type[0], prefix: type[1])
-        config_h.set(type[2], '1')
+        config_data.set(type[2], '1')
     endif
 endforeach
 
@@ -493,7 +495,7 @@ int main(void) {
 }
 '''
 if compiler.compiles(code, name : '__atomic_*')
-    config_h.set('HAVE_ATOMIC_MEMORY_MODEL', 1)
+    config_data.set('HAVE_ATOMIC_MEMORY_MODEL', 1)
 endif
 
 code = '''
@@ -504,7 +506,7 @@ int main(void) {
 }
 '''
 if compiler.compiles(code, name : '__builtin___clear_cache')
-    config_h.set('HAVE_BUILTIN_CLEAR_CACHE', 1)
+    config_data.set('HAVE_BUILTIN_CLEAR_CACHE', 1)
 endif
 
 code = '''
@@ -514,7 +516,7 @@ int main(void) {
 }
 '''
 if compiler.compiles(code, name : '__sync_add_and_fetch')
-    config_h.set('HAVE_SYNC_ADD_AND_FETCH', 1)
+    config_data.set('HAVE_SYNC_ADD_AND_FETCH', 1)
 endif
 
 ###########################
@@ -530,10 +532,10 @@ int main(void) {
 }
 '''
 if compiler.compiles(code, name : 'newer libcap-2 installed')
-    config_h.set('HAVE_NEWER_LIBCAP', 1)
+    config_data.set('HAVE_NEWER_LIBCAP', 1)
 endif
 
-if config_h.has('HAVE_LIBAIO_H')
+if config_data.has('HAVE_LIBAIO_H')
     code = '''
     #include <libaio.h>
     int main() {
@@ -542,11 +544,37 @@ if config_h.has('HAVE_LIBAIO_H')
     }
     '''
     if compiler.compiles(code, args : '-laio', name : 'io_set_eventfd')
-        config_h.set('HAVE_IO_SET_EVENTFD', 1)
+        config_data.set('HAVE_IO_SET_EVENTFD', 1)
     endif
 endif
 
-configure_file(
+config_h = configure_file(
     output : 'config.h',
-    configuration : config_h,
+    configuration : config_data,
 )
+
+ltp_sources += config_h
+
+#############################
+# Generate ltp-version.h
+#############################
+res = run_command(['git', 'describe'], capture : true, check : false)
+
+if res.returncode() == 0
+    version = res.stdout()
+else
+    fs = import('fs')
+    version = fs.read(meson.source_root() + '/VERSION')
+endif
+
+version = version.strip()
+
+message('Version: ' + version)
+
+ltp_version_h = configure_file(
+    input : 'ltp-version.h.in',
+    output : 'ltp-version.h',
+    configuration : {'version' : version}
+)
+
+ltp_sources += ltp_version_h
