@@ -3,6 +3,10 @@
 
 subdir('lapi')
 
+ltp_sources += files([
+    'old/cleanup.c'
+])
+
 compiler = meson.get_compiler('c')
 config_data = configuration_data()
 
