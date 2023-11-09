@@ -39,7 +39,29 @@ if compiler.compiles(code, name : 'whether to define _FORTIFY_SOURCE=2')
     add_project_arguments('-D_FORTIFY_SOURCE=2', language : 'c')
 endif
 
+###########################
+# Build library
+###########################
+ltp_sources = files()
+ltp_dependences = []
+
+subdir('include')
 subdir('lib')
+
+ltp_include_dir = include_directories(
+    'include',
+    'include/old'
+)
+
+ltp_library = library(
+    'ltp',
+    ltp_sources,
+    include_directories : ltp_include_dir,
+    dependencies: ltp_dependences,
+    link_args : ['-lrt'],
+    install : true,
+    install_dir : 'lib',
+)
+
 subdir('lib/tests')
 subdir('lib/newlib_tests')
-subdir('include')

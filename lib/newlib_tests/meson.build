@@ -67,10 +67,10 @@ foreach src : new_tests
     exe = executable(
         bin,
         src,
-        include_directories : include_dir,
-        dependencies: thread_dep,
+        include_directories : ltp_include_dir,
+        dependencies: ltp_dependences,
         link_args : ['-lrt'],
-        link_with : lib_ltp,
+        link_with : ltp_library,
     )
     test(bin, exe)
 endforeach

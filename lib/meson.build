@@ -1,37 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2023 SUSE LLC Andrea Cervesato <andrea.cervesato@suse.com>
 
-#############################
-# Generate ltp-version.h
-#############################
-res = run_command(['git', 'describe'], capture : true, check : false)
-
-if res.returncode() == 0
-    version = res.stdout()
-else
-    fs = import('fs')
-    version = fs.read(meson.source_root() + '/VERSION')
-endif
-
-version = version.strip()
-
-message('Version: ' + version)
-
-config_h = configure_file(
-    input : 'ltp-version.h.in',
-    output : 'ltp-version.h',
-    configuration : {'version' : version}
-)
-
-#############################
-# Build library
-#############################
-ltp_headers = [
-    '../include',
-    '../include/old',
-]
-
-ltp_sources = [
+ltp_sources += files([
     'cloner.c',
     'get_path.c',
     'parse_opts.c',
@@ -109,17 +79,9 @@ ltp_sources = [
     'tst_uid.c',
     'tst_virt.c',
     'tst_wallclock.c',
+])
+
+ltp_dependences += [
+    dependency('threads'),
+    dependency('keyutils', required: false),
 ]
-
-include_dir = include_directories(ltp_headers)
-thread_dep = dependency('threads')
-keyutils_dep = dependency('keyutils', required: false)
-
-lib_ltp = library(
-    'ltp',
-    ltp_sources + config_h,
-    include_directories : include_dir,
-    dependencies: [thread_dep, keyutils_dep],
-    link_args : ['-lrt'],
-    install: true,
-)
