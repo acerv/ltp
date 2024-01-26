@@ -301,8 +301,10 @@ fcntl12 fcntl12
 fcntl12_64 fcntl12_64
 fcntl13 fcntl13
 fcntl13_64 fcntl13_64
-fcntl14 fcntl14
-fcntl14_64 fcntl14_64
+fcntl14_01 fcntl14
+fcntl14_01_64 fcntl14_64
+fcntl14_02 fcntl14 -l
+fcntl14_02_64 fcntl14_64 -l
 fcntl15 fcntl15
 fcntl15_64 fcntl15_64
 fcntl16 fcntl16
