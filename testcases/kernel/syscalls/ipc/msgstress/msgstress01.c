@@ -1,301 +1,180 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Copyright (c) International Business Machines  Corp., 2002
- *
- * This program is free software;  you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY;  without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- * the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program;  if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
- *
- * 06/30/2001   Port to Linux   nsharoff@us.ibm.com
- * 11/06/2002   Port to LTP     dbarrera@us.ibm.com
+ * Copyright (c) International Business Machines Corp., 2002
+ *   06/30/2001   Port to Linux   nsharoff@us.ibm.com
+ *   11/11/2002   Port to LTP     dbarrera@us.ibm.com
+ * Copyright (C) 2024 SUSE LLC Andrea Cervesato <andrea.cervesato@suse.com>
  */
 
 /*
- * Get and manipulate a message queue.
+ * [Description]
+ *
+ * Stress test for SysV IPC. We send multiple messages at the same time,
+ * checking that we are not loosing any byte once we receive the messages.
  */
 
-#define _XOPEN_SOURCE 500
-#include <signal.h>
-#include <errno.h>
-#include <string.h>
-#include <fcntl.h>
 #include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <values.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <sys/stat.h>
-#include <sys/ipc.h>
-#include <sys/msg.h>
-#include "test.h"
-#include "ipcmsg.h"
-#include "libmsgctl.h"
+#include "tst_safe_sysv_ipc.h"
+#include "tst_safe_stdio.h"
+#include "tst_test.h"
 
-char *TCID = "msgstress01";
-int TST_TOTAL = 1;
+#define SYSVIPC_FILE "/proc/sysvipc/msg"
+#define KEY_VAL0 154326L
+#define MSGTYPE 10
 
-#ifndef CONFIG_COLDFIRE
-#define MAXNPROCS	1000000	/* This value is set to an arbitrary high limit. */
-#else
-#define MAXNPROCS	 100000	/* Coldfire can't deal with 1000000 */
-#endif
-#define MAXNREPS	100000
-
-static key_t keyarray[MAXNPROCS];
-static int pidarray[MAXNPROCS];
-static int tid;
-static int MSGMNI, nprocs, nreps;
-static int procstat;
-static int mykid;
-
-void setup(void);
-void cleanup(void);
-
-static int dotest(key_t key, int child_process);
-static void sig_handler();
-
-static char *opt_nprocs;
-static char *opt_nreps;
-
-static option_t options[] = {
-	{"n:", NULL, &opt_nprocs},
-	{"l:", NULL, &opt_nreps},
-	{NULL, NULL, NULL},
+struct sysv_msg {
+	long type;
+	struct {
+		char len;
+		char pbytes[99];
+	} data;
 };
 
-static void usage(void)
+struct sysv_data {
+	int id;
+	struct sysv_msg msg;
+};
+
+static char *str_num_messages;
+static int num_messages = 1000;
+
+static struct sysv_data *ipc_data;
+static int ipc_data_len;
+
+static int get_used_sysvipc(void)
 {
-	printf("  -n      Number of processes\n");
-	printf("  -l      Number of iterations\n");
+	FILE *fp;
+	int used = -1;
+	char buf[BUFSIZ];
+
+	fp = SAFE_FOPEN(SYSVIPC_FILE, "r");
+
+	while (fgets(buf, BUFSIZ, fp) != NULL)
+		used++;
+
+	SAFE_FCLOSE(fp);
+
+	if (used < 0)
+		tst_brk(TBROK, "Can't read %s to get used sysvipc resource", SYSVIPC_FILE);
+
+	return used;
 }
 
-int main(int argc, char **argv)
+static int create_message(const int id)
 {
-	int i, j, ok, pid;
-	int count, status;
-	struct sigaction act;
+	int pos = ipc_data_len;
+	struct sysv_data *buff = ipc_data + pos;
 
-	tst_parse_opts(argc, argv, options, usage);
+	buff->id = id;
+	buff->msg.type = MSGTYPE;
+	buff->msg.data.len = (rand() % 99) + 1;
 
-	setup();
+	for (int i = 0; i < buff->msg.data.len; i++)
+		buff->msg.data.pbytes[i] = rand() % 255;
 
-	nreps = MAXNREPS;
-	nprocs = MSGMNI;
+	ipc_data_len++;
 
-	if (opt_nreps) {
-		nreps = atoi(opt_nreps);
-		if (nreps > MAXNREPS) {
-			tst_resm(TINFO,
-				 "Requested number of iterations too large, "
-				 "setting to Max. of %d", MAXNREPS);
-			nreps = MAXNREPS;
+	return pos;
+}
+
+static void reader(const int id)
+{
+	int size;
+	struct sysv_msg msg_recv;
+	struct sysv_data *buff = NULL;
+
+	memset(&msg_recv, 0, sizeof(struct sysv_msg));
+
+	size = SAFE_MSGRCV(id, &msg_recv, 100, MSGTYPE, 0);
+
+	for (int i = 0; i < ipc_data_len; i++) {
+		if (ipc_data[i].id == id) {
+			buff = ipc_data + i;
+			break;
 		}
 	}
 
-	if (opt_nprocs) {
-		nprocs = atoi(opt_nprocs);
-		if (nprocs > MSGMNI) {
-			tst_resm(TINFO,
-				 "Requested number of processes too large, "
-				 "setting to Max. of %d", MSGMNI);
-			nprocs = MSGMNI;
+	if (!buff) {
+		tst_brk(TBROK, "Can't find original message. This is a test issue!");
+		return;
+	}
+
+	TST_EXP_EQ_LI(msg_recv.type, buff->msg.type);
+	TST_EXP_EQ_LI(msg_recv.data.len, buff->msg.data.len);
+
+	for (int i = 0; i < size; i++) {
+		if (msg_recv.data.pbytes[i] != buff->msg.data.pbytes[i]) {
+			tst_res(TFAIL, "Received wrong data at index %d: %x != %x", i,
+				msg_recv.data.pbytes[i],
+				buff->msg.data.pbytes[i]);
+
+			return;
 		}
 	}
 
-	srand(getpid());
-	tid = -1;
-
-	/* Setup signal handling routine */
-	memset(&act, 0, sizeof(act));
-	act.sa_handler = sig_handler;
-	sigemptyset(&act.sa_mask);
-	sigaddset(&act.sa_mask, SIGTERM);
-	if (sigaction(SIGTERM, &act, NULL) < 0) {
-		tst_brkm(TFAIL, NULL, "Sigset SIGTERM failed");
-	}
-	/* Set up array of unique keys for use in allocating message
-	 * queues
-	 */
-	for (i = 0; i < nprocs; i++) {
-		ok = 1;
-		do {
-			/* Get random key */
-			keyarray[i] = (key_t) rand();
-			/* Make sure key is unique and not private */
-			if (keyarray[i] == IPC_PRIVATE) {
-				ok = 0;
-				continue;
-			}
-			for (j = 0; j < i; j++) {
-				if (keyarray[j] == keyarray[i]) {
-					ok = 0;
-					break;
-				}
-				ok = 1;
-			}
-		} while (ok == 0);
-	}
-
-	/* Fork a number of processes, each of which will
-	 * create a message queue with one reader/writer
-	 * pair which will read and write a number (iterations)
-	 * of random length messages with specific values.
-	 */
-
-	for (i = 0; i < nprocs; i++) {
-		fflush(stdout);
-		if ((pid = FORK_OR_VFORK()) < 0) {
-			tst_brkm(TFAIL,
-				 NULL,
-				 "\tFork failed (may be OK if under stress)");
-		}
-		/* Child does this */
-		if (pid == 0) {
-			procstat = 1;
-			exit(dotest(keyarray[i], i));
-		}
-		pidarray[i] = pid;
-	}
-
-	count = 0;
-	while (1) {
-		if ((wait(&status)) > 0) {
-			if (status >> 8 != 0) {
-				tst_brkm(TFAIL, NULL,
-					 "Child exit status = %d",
-					 status >> 8);
-			}
-			count++;
-		} else {
-			if (errno != EINTR) {
-				break;
-			}
-#ifdef DEBUG
-			tst_resm(TINFO, "Signal detected during wait");
-#endif
-		}
-	}
-	/* Make sure proper number of children exited */
-	if (count != nprocs) {
-		tst_brkm(TFAIL,
-			 NULL,
-			 "Wrong number of children exited, Saw %d, Expected %d",
-			 count, nprocs);
-	}
-
-	tst_resm(TPASS, "Test ran successfully!");
-
-	cleanup();
-	tst_exit();
+	tst_res(TPASS, "Received correct data");
 }
 
-static int dotest(key_t key, int child_process)
+static void run(void)
 {
-	int id, pid;
-	int ret, status;
+	int id, pos;
 
-	sighold(SIGTERM);
-	TEST(msgget(key, IPC_CREAT | S_IRUSR | S_IWUSR));
-	if (TEST_RETURN < 0) {
-		printf("msgget() error in child %d: %s\n",
-			child_process, strerror(TEST_ERRNO));
+	ipc_data_len = 0;
+	memset(ipc_data, 0, sizeof(struct sysv_data) * num_messages);
 
-		return FAIL;
-	}
-	tid = id = TEST_RETURN;
-	sigrelse(SIGTERM);
+	for (int i = 0; i < num_messages; i++) {
+		id = SAFE_MSGGET(KEY_VAL0 + i, IPC_CREAT | 0600);
+		pos = create_message(id);
 
-	fflush(stdout);
-	if ((pid = FORK_OR_VFORK()) < 0) {
-		printf("\tFork failed (may be OK if under stress)\n");
-		TEST(msgctl(tid, IPC_RMID, 0));
-		if (TEST_RETURN < 0) {
-			printf("mscgtl() error in cleanup: %s\n",
-				strerror(TEST_ERRNO));
+		if (!SAFE_FORK()) {
+			struct sysv_data *buff = &ipc_data[pos];
+
+			SAFE_MSGSND(id, &buff->msg, 100, 0);
+			return;
 		}
-		return FAIL;
+
+		if (!SAFE_FORK()) {
+			reader(id);
+			return;
+		}
 	}
-	/* Child does this */
-	if (pid == 0)
-		exit(doreader(key, id, 1, child_process, nreps));
-	/* Parent does this */
-	mykid = pid;
-	procstat = 2;
-	ret = dowriter(key, id, 1, child_process, nreps);
-	wait(&status);
-
-	if (ret != PASS)
-		exit(FAIL);
-
-	if ((!WIFEXITED(status) || (WEXITSTATUS(status) != PASS)))
-		exit(FAIL);
-
-	TEST(msgctl(id, IPC_RMID, 0));
-	if (TEST_RETURN < 0) {
-		printf("msgctl() errno %d: %s\n",
-			TEST_ERRNO, strerror(TEST_ERRNO));
-
-		return FAIL;
-	}
-	return PASS;
 }
 
-static void sig_handler(void)
+static void setup(void)
 {
+	int total_msg, avail_msg;
+
+	srand(time(0));
+
+	SAFE_FILE_SCANF("/proc/sys/kernel/msgmni", "%i", &total_msg);
+
+	avail_msg = total_msg - get_used_sysvipc();
+
+	tst_res(TINFO, "Available messages slots: %d", avail_msg);
+
+	if (tst_parse_int(str_num_messages, &num_messages, 1, avail_msg))
+		tst_brk(TBROK, "Invalid number of messages '%s'", str_num_messages);
+
+	ipc_data = SAFE_MMAP(
+		NULL,
+		sizeof(struct sysv_data) * num_messages,
+		PROT_READ | PROT_WRITE,
+		MAP_SHARED | MAP_ANONYMOUS,
+		-1, 0);
 }
 
-void setup(void)
+static void cleanup(void)
 {
-	int nr_msgqs;
-
-	tst_tmpdir();
-
-	tst_sig(FORK, DEF_HANDLER, cleanup);
-
-	TEST_PAUSE;
-
-	nr_msgqs = get_max_msgqueues();
-	if (nr_msgqs < 0)
-		cleanup();
-
-	nr_msgqs -= get_used_msgqueues();
-	if (nr_msgqs <= 0) {
-		tst_resm(TBROK,
-			 "Max number of message queues already used, cannot create more.");
-		cleanup();
-	}
-
-	/*
-	 * Since msgmni scales to the memory size, it may reach huge values
-	 * that are not necessary for this test.
-	 * That's why we define NR_MSGQUEUES as a high boundary for it.
-	 */
-	MSGMNI = MIN(nr_msgqs, NR_MSGQUEUES);
+	SAFE_MUNMAP(ipc_data, sizeof(struct sysv_data) * num_messages);
 }
 
-void cleanup(void)
-{
-	int status;
-
-#ifdef DEBUG
-	tst_resm(TINFO, "Removing the message queue");
-#endif
-	(void)msgctl(tid, IPC_RMID, NULL);
-	if ((status = msgctl(tid, IPC_STAT, NULL)) != -1) {
-		(void)msgctl(tid, IPC_RMID, NULL);
-		tst_resm(TFAIL, "msgctl(tid, IPC_RMID) failed");
-
-	}
-
-	tst_rmdir();
-}
+static struct tst_test test = {
+	.test_all = run,
+	.setup = setup,
+	.cleanup = cleanup,
+	.forks_child = 1,
+	.options = (struct tst_option[]) {
+		{"n:", &str_num_messages, "Number of messages to send (default: 1000)"},
+		{},
+	},
+};
