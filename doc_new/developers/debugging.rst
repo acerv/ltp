@@ -1,0 +1,10 @@
+.. SPDX-License-Identifier: GPL-2.0-or-later
+
+Debugging
+=========
+
+The new test library runs the actual test, i.e. the `test()` function in a
+forked process. To get stack trace of a crashing test in gdb it's needed to
+`set follow-fork-mode child <https://ftp.gnu.org/old-gnu/Manuals/gdb/html_node/gdb_25.html>`_.
+To trace the test, please use `strace -f` to enable tracing also for the
+forked processes.
