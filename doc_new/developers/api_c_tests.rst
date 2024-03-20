@@ -5,3 +5,6 @@
 
 Developing using C API
 ======================
+
+.. doxygengroup:: tst_uid
+    :content-only:
