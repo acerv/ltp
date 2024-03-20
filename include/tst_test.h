@@ -98,8 +98,11 @@ pid_t safe_fork(const char *filename, unsigned int lineno);
 	({int ret = expr;                                           \
 	  ret != 0 ? tst_res(TINFO, #expr " failed"), ret : ret; }) \
 
-/*
- * Functions to convert ERRNO to its name and SIGNAL to its name.
+/**
+ * tst_strerrno() - Functions to convert ERRNO to its name and SIGNAL to its name.
+ * @err: error code
+ * Return:
+ * 	name of the error code
  */
 const char *tst_strerrno(int err);
 const char *tst_strsig(int sig);
