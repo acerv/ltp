@@ -20,6 +20,7 @@
 #include "tst_safe_macros.h"
 #include "lapi/personality.h"
 #include "lapi/pidfd.h"
+#include "lapi/stat.h"
 
 int safe_access(const char *file, const int lineno,
 	    const char *pathname, int mode)
@@ -706,6 +707,27 @@ int safe_mprotect(const char *file, const int lineno,
 		tst_brk_(file, lineno, TBROK | TERRNO,
 			"mprotect(%p, %ld, %s(%x)) return value %d",
 			addr, len, prot_buf, prot, rval);
+	}
+
+	return rval;
+}
+
+int safe_statx(const char *file, const int lineno,
+	int dirfd, const char *pathname, int flags, unsigned int mask,
+	struct statx *buf)
+{
+	int rval;
+
+	rval = statx(dirfd, pathname, flags, mask, buf);
+
+	if (rval == -1) {
+		tst_brk_(file, lineno, TBROK | TERRNO,
+			"statx(%d,%s,%d,%u,%p) failed", dirfd, pathname, flags, mask, buf);
+	} else if (rval) {
+		tst_brk_(file, lineno, TBROK | TERRNO,
+			"Invalid statx(%d,%s,%d,%u,%p) return value %d",
+			dirfd, pathname, flags, mask, buf,
+			rval);
 	}
 
 	return rval;
