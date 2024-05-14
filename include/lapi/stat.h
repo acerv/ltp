@@ -95,7 +95,11 @@ struct statx {
 	uint32_t	stx_dev_major;
 	uint32_t	stx_dev_minor;
 	/* 0x90 */
-	uint64_t	__spare2[14];
+	__u64	stx_mnt_id;
+	__u32	stx_dio_mem_align;
+	__u32	stx_dio_offset_align;
+	/* 0xa0 */
+	__u64	__spare3[12];
 	/* 0x100 */
 };
 #endif
@@ -227,6 +231,10 @@ static inline int statx(int dirfd, const char *pathname, unsigned int flags,
 
 #ifndef STATX_ATTR_VERITY
 # define STATX_ATTR_VERITY	0x00100000
+#endif
+
+#ifndef STATX_MNT_ID_UNIQUE
+# define STATX_MNT_ID_UNIQUE  0x00004000U
 #endif
 
 #endif /* LAPI_STAT_H__ */

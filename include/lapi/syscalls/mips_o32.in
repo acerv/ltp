@@ -417,3 +417,5 @@ epoll_pwait2 4441
 mount_setattr 4442
 quotactl_fd 4443
 futex_waitv 4449
+statmount 4457
+listmount 4458

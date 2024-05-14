@@ -344,3 +344,5 @@ faccessat2 1463
 epoll_pwait2 1465
 quotactl_fd 1467
 futex_waitv 1473
+statmount 1481
+listmount 1482

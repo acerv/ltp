@@ -113,6 +113,7 @@ AC_CHECK_FUNCS_ONCE([ \
     io_uring_register \
     io_uring_enter \
     kcmp \
+    listmount \
     mallinfo \
     mallinfo2 \
     mallopt \
@@ -142,6 +143,7 @@ AC_CHECK_FUNCS_ONCE([ \
     setns \
     sigpending \
     splice \
+    statmount \
     statx \
     stime \
     sync_file_range \
@@ -231,6 +233,9 @@ AC_CHECK_TYPES([struct mount_attr],,,[
 # include <linux/mount.h>
 #endif
 ])
+
+AC_CHECK_TYPES([struct mnt_id_req],,,[#include <linux/mount.h>])
+AC_CHECK_TYPES([struct statmount],,,[#include <linux/mount.h>])
 
 # Tools knobs
 
