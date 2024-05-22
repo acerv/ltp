@@ -343,4 +343,5 @@ pidfd_getfd 1462
 faccessat2 1463
 epoll_pwait2 1465
 quotactl_fd 1467
+process_mrelease 1472
 futex_waitv 1473
