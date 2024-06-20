@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <sys/vfs.h>
 #include <sys/sysinfo.h>
+#include <linux/landlock.h>
 #include <fcntl.h>
 #include <libgen.h>
 #include <signal.h>
@@ -502,5 +503,23 @@ int safe_sscanf(const char *file, const int lineno, const char *restrict buffer,
 	const char *restrict format, ...);
 #define SAFE_SSCANF(buffer, format, ...) \
 	safe_sscanf(__FILE__, __LINE__, (buffer), (format),	##__VA_ARGS__)
+
+int safe_landlock_create_ruleset(const char *file, const int lineno,
+	const struct landlock_ruleset_attr *attr,
+	size_t size , uint32_t flags);
+#define SAFE_LANDLOCK_CREATE_RULESET(attr, size, flags) \
+	safe_landlock_create_ruleset(__FILE__, __LINE__, (attr), (size), (flags))
+
+int safe_landlock_add_rule(const char *file, const int lineno,
+	int ruleset_fd, enum landlock_rule_type rule_type,
+	const void *rule_attr, uint32_t flags);
+#define SAFE_LANDLOCK_ADD_RULE(ruleset_fd, rule_type, rule_attr, flags) \
+	safe_landlock_add_rule(__FILE__, __LINE__, \
+		(ruleset_fd), (rule_type), (rule_attr), (flags))
+
+int safe_landlock_restrict_self(const char *file, const int lineno,
+	int ruleset_fd, int flags);
+#define SAFE_LANDLOCK_RESTRICT_SELF(ruleset_fd, flags) \
+	safe_landlock_restrict_self(__FILE__, __LINE__, (ruleset_fd), (flags))
 
 #endif /* TST_SAFE_MACROS_H__ */
