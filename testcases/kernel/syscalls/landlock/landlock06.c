@@ -42,8 +42,6 @@ static void run(void)
 
 static void setup(void)
 {
-	int ruleset_fd;
-
 	if (verify_landlock_is_enabled() < 5)
 		tst_brk(TCONF, "LANDLOCK_ACCESS_FS_IOCTL_DEV is not supported");
 
@@ -56,17 +54,12 @@ static void setup(void)
 
 	ruleset_attr->data.handled_access_fs = LANDLOCK_ACCESS_FS_IOCTL_DEV;
 
-	ruleset_fd = SAFE_LANDLOCK_CREATE_RULESET(
-		ruleset_attr, sizeof(struct tst_landlock_ruleset_attr), 0);
-
 	apply_landlock_fs_layer(
 		ruleset_attr,
 		path_beneath_attr,
 		MNTPOINT,
 		LANDLOCK_ACCESS_FS_IOCTL_DEV
 	);
-
-	SAFE_CLOSE(ruleset_fd);
 }
 
 static void cleanup(void)
