@@ -59,7 +59,7 @@ static void setup(void)
 	ruleset_fd = SAFE_LANDLOCK_CREATE_RULESET(
 		ruleset_attr, sizeof(struct tst_landlock_ruleset_attr), 0);
 
-	apply_landlock_layer(
+	apply_landlock_fs_layer(
 		ruleset_attr,
 		path_beneath_attr,
 		MNTPOINT,

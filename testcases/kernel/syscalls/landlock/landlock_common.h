@@ -33,7 +33,7 @@ static inline int verify_landlock_is_enabled(void)
 	return abi;
 }
 
-static inline void apply_landlock_rule(
+static inline void apply_landlock_fs_rule(
 	struct landlock_path_beneath_attr *path_beneath_attr,
 	const int ruleset_fd,
 	const int access,
@@ -51,13 +51,29 @@ static inline void apply_landlock_rule(
 	SAFE_CLOSE(path_beneath_attr->parent_fd);
 }
 
+static inline void apply_landlock_net_rule(
+	struct landlock_net_port_attr *net_attr,
+	const int ruleset_fd,
+	const uint64_t port,
+	const uint64_t access)
+{
+	net_attr->port = port;
+	net_attr->allowed_access = access;
+
+	SAFE_LANDLOCK_ADD_RULE(
+		ruleset_fd,
+		LANDLOCK_RULE_NET_PORT,
+		net_attr,
+		0);
+}
+
 static inline void enforce_ruleset(const int ruleset_fd)
 {
 	SAFE_PRCTL(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
 	SAFE_LANDLOCK_RESTRICT_SELF(ruleset_fd, 0);
 }
 
-static inline void apply_landlock_layer(
+static inline void apply_landlock_fs_layer(
 	struct tst_landlock_ruleset_attr *ruleset_attr,
 	struct landlock_path_beneath_attr *path_beneath_attr,
 	const char *path,
@@ -68,7 +84,24 @@ static inline void apply_landlock_layer(
 	ruleset_fd = SAFE_LANDLOCK_CREATE_RULESET(
 		ruleset_attr, sizeof(struct tst_landlock_ruleset_attr), 0);
 
-	apply_landlock_rule(path_beneath_attr, ruleset_fd, access, path);
+	apply_landlock_fs_rule(path_beneath_attr, ruleset_fd, access, path);
+	enforce_ruleset(ruleset_fd);
+
+	SAFE_CLOSE(ruleset_fd);
+}
+
+static inline void apply_landlock_net_layer(
+	struct tst_landlock_ruleset_attr *ruleset_attr,
+	struct landlock_net_port_attr *net_port_attr,
+	const uint64_t port,
+	const uint64_t access)
+{
+	int ruleset_fd;
+
+	ruleset_fd = SAFE_LANDLOCK_CREATE_RULESET(
+		ruleset_attr, sizeof(struct tst_landlock_ruleset_attr), 0);
+
+	apply_landlock_net_rule(net_port_attr, ruleset_fd, port, access);
 	enforce_ruleset(ruleset_fd);
 
 	SAFE_CLOSE(ruleset_fd);

@@ -70,13 +70,13 @@ static void setup(void)
 	ruleset_fd = SAFE_LANDLOCK_CREATE_RULESET(
 		ruleset_attr, sizeof(struct tst_landlock_ruleset_attr), 0);
 
-	apply_landlock_rule(
+	apply_landlock_fs_rule(
 		path_beneath_attr,
 		ruleset_fd,
 		LANDLOCK_ACCESS_FS_REFER,
 		DIR1);
 
-	apply_landlock_rule(
+	apply_landlock_fs_rule(
 		path_beneath_attr,
 		ruleset_fd,
 		LANDLOCK_ACCESS_FS_REFER,
