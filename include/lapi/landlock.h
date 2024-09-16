@@ -7,6 +7,7 @@
 #define LAPI_LANDLOCK_H__
 
 #include "config.h"
+#include <stdint.h>
 
 #ifdef HAVE_LINUX_LANDLOCK_H
 # include <linux/landlock.h>
@@ -14,13 +15,27 @@
 
 #include "lapi/syscalls.h"
 
-#ifndef HAVE_STRUCT_LANDLOCK_RULESET_ATTR
-struct landlock_ruleset_attr
+/*
+ * This is a complete fallback struct for the landlock_ruleset_attr struct
+ */
+struct tst_landlock_ruleset_attr_fallback
 {
 	uint64_t handled_access_fs;
 	uint64_t handled_access_net;
 };
+
+struct tst_landlock_ruleset_attr
+{
+	union {
+#if !defined(HAVE_STRUCT_LANDLOCK_RULESET_ATTR) || \
+	!defined(HAVE_STRUCT_LANDLOCK_RULESET_ATTR_HANDLED_ACCESS_NET)
+		struct tst_landlock_ruleset_attr_fallback base;
+#else
+		struct landlock_ruleset_attr base;
 #endif
+		struct tst_landlock_ruleset_attr_fallback data;
+	};
+};
 
 #ifndef HAVE_STRUCT_LANDLOCK_PATH_BENEATH_ATTR
 struct landlock_path_beneath_attr
@@ -30,12 +45,12 @@ struct landlock_path_beneath_attr
 } __attribute__((packed));
 #endif
 
-#ifndef HAVE_ENUM_LANDLOCK_RULE_TYPE
-enum landlock_rule_type
-{
-	LANDLOCK_RULE_PATH_BENEATH = 1,
-	LANDLOCK_RULE_NET_PORT,
-};
+#ifndef LANDLOCK_RULE_PATH_BENEATH
+# define LANDLOCK_RULE_PATH_BENEATH 1
+#endif
+
+#ifndef LANDLOCK_RULE_NET_PORT
+# define LANDLOCK_RULE_NET_PORT 2
 #endif
 
 #ifndef HAVE_STRUCT_LANDLOCK_NET_PORT_ATTR
@@ -123,12 +138,12 @@ struct landlock_net_port_attr
 #endif
 
 static inline int safe_landlock_create_ruleset(const char *file, const int lineno,
-	const struct landlock_ruleset_attr *attr,
+	const struct tst_landlock_ruleset_attr *attr,
 	size_t size , uint32_t flags)
 {
 	int rval;
 
-	rval = tst_syscall(__NR_landlock_create_ruleset, attr, size, flags);
+	rval = tst_syscall(__NR_landlock_create_ruleset, &attr->base, size, flags);
 	if (rval == -1) {
 		tst_brk_(file, lineno, TBROK | TERRNO,
 			"landlock_create_ruleset(%p, %zi, %u)",
@@ -143,7 +158,7 @@ static inline int safe_landlock_create_ruleset(const char *file, const int linen
 }
 
 static inline int safe_landlock_add_rule(const char *file, const int lineno,
-	int ruleset_fd, enum landlock_rule_type rule_type,
+	int ruleset_fd, int rule_type,
 	const void *rule_attr, uint32_t flags)
 {
 	int rval;

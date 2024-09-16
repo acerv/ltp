@@ -58,7 +58,7 @@ static inline void enforce_ruleset(const int ruleset_fd)
 }
 
 static inline void apply_landlock_layer(
-	struct landlock_ruleset_attr *ruleset_attr,
+	struct tst_landlock_ruleset_attr *ruleset_attr,
 	struct landlock_path_beneath_attr *path_beneath_attr,
 	const char *path,
 	const int access)
@@ -66,7 +66,7 @@ static inline void apply_landlock_layer(
 	int ruleset_fd;
 
 	ruleset_fd = SAFE_LANDLOCK_CREATE_RULESET(
-		ruleset_attr, sizeof(struct landlock_ruleset_attr), 0);
+		ruleset_attr, sizeof(struct tst_landlock_ruleset_attr), 0);
 
 	apply_landlock_rule(path_beneath_attr, ruleset_fd, access, path);
 	enforce_ruleset(ruleset_fd);
