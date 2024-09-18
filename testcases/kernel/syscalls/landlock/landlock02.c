@@ -23,22 +23,26 @@
 static struct tst_landlock_ruleset_attr *ruleset_attr;
 static struct landlock_path_beneath_attr *path_beneath_attr;
 static struct landlock_path_beneath_attr *rule_null;
+static struct landlock_net_port_attr *net_port_attr;
 static int ruleset_fd;
 static int invalid_fd = -1;
 
 static struct tcase {
 	int *fd;
 	int rule_type;
-	struct landlock_path_beneath_attr **attr;
+	struct landlock_path_beneath_attr **path_attr;
+	struct landlock_net_port_attr **net_attr;
 	int access;
 	int parent_fd;
+	int net_port;
 	uint32_t flags;
 	int exp_errno;
 	char *msg;
 } tcases[] = {
 	{
 		.fd = &ruleset_fd,
-		.attr = &path_beneath_attr,
+		.path_attr = &path_beneath_attr,
+		.net_attr = NULL,
 		.access = LANDLOCK_ACCESS_FS_EXECUTE,
 		.flags = 1,
 		.exp_errno = EINVAL,
@@ -46,7 +50,8 @@ static struct tcase {
 	},
 	{
 		.fd = &ruleset_fd,
-		.attr = &path_beneath_attr,
+		.path_attr = &path_beneath_attr,
+		.net_attr = NULL,
 		.access = LANDLOCK_ACCESS_FS_EXECUTE,
 		.exp_errno = EINVAL,
 		.msg = "Invalid rule type"
@@ -54,13 +59,15 @@ static struct tcase {
 	{
 		.fd = &ruleset_fd,
 		.rule_type = LANDLOCK_RULE_PATH_BENEATH,
-		.attr = &path_beneath_attr,
+		.path_attr = &path_beneath_attr,
+		.net_attr = NULL,
 		.exp_errno = ENOMSG,
 		.msg = "Empty accesses"
 	},
 	{
 		.fd = &invalid_fd,
-		.attr = &path_beneath_attr,
+		.path_attr = &path_beneath_attr,
+		.net_attr = NULL,
 		.access = LANDLOCK_ACCESS_FS_EXECUTE,
 		.exp_errno = EBADF,
 		.msg = "Invalid file descriptor"
@@ -68,7 +75,8 @@ static struct tcase {
 	{
 		.fd = &ruleset_fd,
 		.rule_type = LANDLOCK_RULE_PATH_BENEATH,
-		.attr = &path_beneath_attr,
+		.path_attr = &path_beneath_attr,
+		.net_attr = NULL,
 		.access = LANDLOCK_ACCESS_FS_EXECUTE,
 		.parent_fd = -1,
 		.exp_errno = EBADF,
@@ -77,9 +85,30 @@ static struct tcase {
 	{
 		.fd = &ruleset_fd,
 		.rule_type = LANDLOCK_RULE_PATH_BENEATH,
-		.attr = &rule_null,
+		.path_attr = &rule_null,
+		.net_attr = NULL,
 		.exp_errno = EFAULT,
 		.msg = "Invalid rule attr"
+	},
+	{
+		.fd = &ruleset_fd,
+		.rule_type = LANDLOCK_RULE_NET_PORT,
+		.path_attr = NULL,
+		.net_attr = &net_port_attr,
+		.access = LANDLOCK_ACCESS_FS_EXECUTE,
+		.net_port = 448,
+		.exp_errno = EINVAL,
+		.msg = "Invalid access rule for network type"
+	},
+	{
+		.fd = &ruleset_fd,
+		.rule_type = LANDLOCK_RULE_NET_PORT,
+		.path_attr = NULL,
+		.net_attr = &net_port_attr,
+		.access = LANDLOCK_ACCESS_NET_BIND_TCP,
+		.net_port = INT16_MAX + 1,
+		.exp_errno = EINVAL,
+		.msg = "Socket port greater than 65535"
 	},
 };
 
@@ -87,16 +116,25 @@ static void run(unsigned int n)
 {
 	struct tcase *tc = &tcases[n];
 
-	if (*tc->attr) {
-		(*tc->attr)->allowed_access = tc->access;
-		(*tc->attr)->parent_fd = tc->parent_fd;
-	}
+	if (tc->path_attr) {
+		if (*tc->path_attr) {
+			(*tc->path_attr)->allowed_access = tc->access;
+			(*tc->path_attr)->parent_fd = tc->parent_fd;
+		}
 
-	TST_EXP_FAIL(tst_syscall(__NR_landlock_add_rule,
-			*tc->fd, tc->rule_type, *tc->attr, tc->flags),
-		tc->exp_errno,
-		"%s",
-		tc->msg);
+		TST_EXP_FAIL(tst_syscall(__NR_landlock_add_rule,
+			*tc->fd, tc->rule_type, *tc->path_attr, tc->flags),
+			tc->exp_errno, "%s", tc->msg);
+	} else if (tc->net_attr) {
+		if (tc->net_attr) {
+			(*tc->net_attr)->allowed_access = tc->access;
+			(*tc->net_attr)->port = tc->net_port;
+		}
+
+		TST_EXP_FAIL(tst_syscall(__NR_landlock_add_rule,
+			*tc->fd, tc->rule_type, *tc->net_attr, tc->flags),
+			tc->exp_errno, "%s", tc->msg);
+	}
 }
 
 static void setup(void)
@@ -124,6 +162,7 @@ static struct tst_test test = {
 	.bufs = (struct tst_buffers []) {
 		{&ruleset_attr, .size = sizeof(struct tst_landlock_ruleset_attr)},
 		{&path_beneath_attr, .size = sizeof(struct landlock_path_beneath_attr)},
+		{&net_port_attr, .size = sizeof(struct landlock_net_port_attr)},
 		{},
 	},
 	.caps = (struct tst_cap []) {
