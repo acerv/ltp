@@ -60,6 +60,9 @@ static void setup(void)
 {
 	struct stat sb;
 
+	if (!strcmp(tst_device->fs_type, "xfs") && tst_kvercmp(4, 9, 0) < 0)
+		tst_brk(TCONF, "XFS doesn't support reflink");
+
 	SAFE_STAT(MNTPOINT, &sb);
 
 	alignment = sb.st_blksize;
@@ -85,7 +88,7 @@ static struct tst_test test = {
 		{.type = "bcachefs"},
 		{.type = "btrfs"},
 		{
-			.type = "xfs",
+			.type = "xfs >= 5.1.0",
 			.mkfs_opts = (const char *const []) {"-m", "reflink=1", NULL},
 		},
 		{}

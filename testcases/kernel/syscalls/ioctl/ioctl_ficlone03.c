@@ -62,6 +62,9 @@ static void setup(void)
 	int attr;
 	struct stat sb;
 
+	if (!strcmp(tst_device->fs_type, "xfs") && tst_kvercmp(4, 9, 0) < 0)
+		tst_brk(TCONF, "XFS doesn't support reflink");
+
 	rw_file = SAFE_OPEN("ok_only", O_CREAT | O_RDWR, 0640);
 	ro_file = SAFE_OPEN("rd_only", O_CREAT | O_RDONLY, 0640);
 	wo_file = SAFE_OPEN("rw_only", O_CREAT | O_WRONLY, 0640);
@@ -113,7 +116,7 @@ static struct tst_test test = {
 		{.type = "bcachefs"},
 		{.type = "btrfs"},
 		{
-			.type = "xfs",
+			.type = "xfs >= 5.1.0",
 			.mkfs_opts = (const char *const []) {"-m", "reflink=1", NULL},
 		},
 		{}

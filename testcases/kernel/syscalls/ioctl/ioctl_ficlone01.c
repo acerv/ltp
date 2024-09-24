@@ -95,6 +95,12 @@ static void run(void)
 	SAFE_UNLINK(DSTPATH);
 }
 
+static void setup(void)
+{
+	if (!strcmp(tst_device->fs_type, "xfs") && tst_kvercmp(4, 9, 0) < 0)
+		tst_brk(TCONF, "XFS doesn't support reflink");
+}
+
 static void cleanup(void)
 {
 	if (src_fd != -1)
@@ -106,6 +112,7 @@ static void cleanup(void)
 
 static struct tst_test test = {
 	.test_all = run,
+	.setup = setup,
 	.cleanup = cleanup,
 	.min_kver = "4.5",
 	.needs_root = 1,
@@ -115,7 +122,7 @@ static struct tst_test test = {
 		{.type = "bcachefs"},
 		{.type = "btrfs"},
 		{
-			.type = "xfs",
+			.type = "xfs >= 5.1.0",
 			.mkfs_opts = (const char *const []) {"-m", "reflink=1", NULL},
 		},
 		{}
