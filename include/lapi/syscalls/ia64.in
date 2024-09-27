@@ -18,6 +18,7 @@ lseek 1040
 getpid 1041
 getppid 1042
 mount 1043
+umount 1044
 umount2 1044
 setuid 1045
 getuid 1046
@@ -109,7 +110,6 @@ quotactl 1137
 bdflush 1138
 sysfs 1139
 personality 1140
-afs_syscall 1141
 setfsuid 1142
 setfsgid 1143
 getdents 1144
@@ -143,7 +143,6 @@ old_getpagesize 1171
 mmap2 1172
 pciconfig_read 1173
 pciconfig_write 1174
-perfmonctl 1175
 sigaltstack 1176
 rt_sigaction 1177
 rt_sigpending 1178
@@ -157,7 +156,6 @@ capget 1185
 capset 1186
 sendfile 1187
 getpmsg 1188
-putpmsg 1189
 socket 1190
 bind 1191
 connect 1192
@@ -237,7 +235,6 @@ mq_timedreceive 1265
 mq_notify 1266
 mq_getsetattr 1267
 kexec_load 1268
-vserver 1269
 waitid 1270
 add_key 1271
 request_key 1272
@@ -341,12 +338,15 @@ close_range 1460
 openat2 1461
 pidfd_getfd 1462
 faccessat2 1463
+process_madvise 1464
 epoll_pwait2 1465
+mount_setattr 1466
 quotactl_fd 1467
 landlock_create_ruleset 1468
 landlock_add_rule 1469
 landlock_restrict_self 1470
+process_mrelease 1472
 futex_waitv 1473
+set_mempolicy_home_node 1474
 cachestat 1475
 fchmodat2 1476
-mseal 1486
