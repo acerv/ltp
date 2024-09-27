@@ -74,9 +74,12 @@ tst_ret; \
 			sparc64) echo "#if defined(__sparc__) && defined(__arch64__)" ;;
 			sparc) echo "#if defined(__sparc__) && !defined(__arch64__)" ;;
 			s390) echo "#if defined(__s390__) && !defined(__s390x__)" ;;
-			mips_n32) echo "#if defined(__mips__) && defined(_ABIN32)" ;;
-			mips_n64) echo "#if defined(__mips__) && defined(_ABI64)" ;;
-			mips_o32) echo "#if defined(__mips__) && defined(_ABIO32) && _MIPS_SZLONG == 32" ;;
+			mips64n32) echo "#if defined(__mips__) && defined(_ABIN32)" ;;
+			mips64) echo "#if defined(__mips__) && defined(_ABI64)" ;;
+			mipso32) echo "#if defined(__mips__) && defined(_ABIO32) && _MIPS_SZLONG == 32" ;;
+			parisc) echo "#ifdef __hppa__" ;;
+			loongarch64) echo "#ifdef __loongarch__" ;;
+			arm64) echo "#ifdef __aarch64__" ;;
 			*) echo "#ifdef __${arch}__" ;;
 			esac
 

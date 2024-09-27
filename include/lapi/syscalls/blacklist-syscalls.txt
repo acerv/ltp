@@ -1,0 +1,6 @@
+arch_specific_syscall
+available
+ni_syscall
+reserved
+SYSCALL_MASK
+unused
