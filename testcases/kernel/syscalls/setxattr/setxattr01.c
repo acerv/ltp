@@ -36,6 +36,8 @@
 # include <sys/xattr.h>
 #endif
 #include "tst_test.h"
+#include "lapi/syscalls.h"
+#include "lapi/xattr.h"
 
 #ifdef HAVE_SYS_XATTR_H
 #define XATTR_NAME_MAX 255
@@ -45,11 +47,13 @@
 #define XATTR_TEST_VALUE "this is a test value"
 #define XATTR_TEST_VALUE_SIZE 20
 #define MNTPOINT "mntpoint"
-#define FNAME MNTPOINT"/setxattr01testfile"
+#define FNAME_REL "setxattr01testfile"
+#define FNAME MNTPOINT"/"FNAME_REL
 
 static char long_key[XATTR_NAME_LEN];
 static char *long_value;
 static char *xattr_value = XATTR_TEST_VALUE;
+static int mnt_fd = -1;
 
 struct test_case {
 	char *key;
@@ -128,44 +132,65 @@ struct test_case tc[] = {
 
 static void verify_setxattr(unsigned int i)
 {
+	char *sysname;
+
 	/* some tests might require existing keys for each iteration */
 	if (tc[i].keyneeded) {
 		SAFE_SETXATTR(FNAME, tc[i].key, *tc[i].value, tc[i].size,
 				XATTR_CREATE);
 	}
 
-	TEST(setxattr(FNAME, tc[i].key, *tc[i].value, tc[i].size, tc[i].flags));
+	if (tst_variant) {
+		sysname = "setxattrat";
+
+		struct xattr_args args = {
+			.value = tc[i].value,
+			.size = tc[i].size,
+			.flags = tc[i].flags,
+		};
+
+		TEST(tst_syscall(__NR_setxattrat,
+			mnt_fd, FNAME_REL, AT_SYMLINK_NOFOLLOW,
+			tc[i].key, &args, sizeof(args)));
+	} else {
+		sysname = "setxattr";
+
+		TEST(setxattr(
+			FNAME,
+			tc[i].key, *tc[i].value, tc[i].size,
+			tc[i].flags));
+	}
 
 	if (TST_RET == -1 && TST_ERR == EOPNOTSUPP)
-		tst_brk(TCONF, "setxattr(2) not supported");
+		tst_brk(TCONF, "%s(2) not supported", sysname);
 
 	/* success */
 
 	if (!tc[i].exp_err) {
 		if (TST_RET) {
 			tst_res(TFAIL | TTERRNO,
-				"setxattr(2) failed with %li", TST_RET);
+				"%s(2) failed with %li", sysname, TST_RET);
 			return;
 		}
 
 		/* this is needed for subsequent iterations */
 		SAFE_REMOVEXATTR(FNAME, tc[i].key);
 
-		tst_res(TPASS, "setxattr(2) passed");
+		tst_res(TPASS, "%s(2) passed", sysname);
 
 		return;
 	}
 
 	if (TST_RET == 0) {
-		tst_res(TFAIL, "setxattr(2) passed unexpectedly");
+		tst_res(TFAIL, "%s(2) passed unexpectedly", sysname);
 		return;
 	}
 
 	/* error */
 
 	if (tc[i].exp_err != TST_ERR) {
-		tst_res(TFAIL | TTERRNO, "setxattr(2) should fail with %s",
-			tst_strerrno(tc[i].exp_err));
+		tst_res(TFAIL | TTERRNO, "%s(2) should fail with %s",
+			sysname, tst_strerrno(tc[i].exp_err));
 		return;
 	}
 
@@ -173,7 +198,7 @@ static void verify_setxattr(unsigned int i)
 	if (tc[i].keyneeded)
 		SAFE_REMOVEXATTR(FNAME, tc[i].key);
 
-	tst_res(TPASS | TTERRNO, "setxattr(2) failed");
+	tst_res(TPASS | TTERRNO, "%s(2) failed", sysname);
 }
 
 static void setup(void)
@@ -194,12 +219,22 @@ static void setup(void)
 		if (!tc[i].key)
 			tc[i].key = tst_get_bad_addr(NULL);
 	}
+
+	mnt_fd = SAFE_OPEN(MNTPOINT, O_DIRECTORY);
+}
+
+static void cleanup(void)
+{
+	if (mnt_fd != -1)
+		SAFE_CLOSE(mnt_fd);
 }
 
 static struct tst_test test = {
 	.setup = setup,
+	.cleanup = cleanup,
 	.test = verify_setxattr,
 	.tcnt = ARRAY_SIZE(tc),
+	.test_variants = 2,
 	.mntpoint = MNTPOINT,
 	.mount_device = 1,
 	.all_filesystems = 1,
