@@ -36,6 +36,9 @@
 # include <sys/xattr.h>
 #endif
 #include "tst_test.h"
+#include "lapi/syscalls.h"
+#include "lapi/xattr.h"
+#include "lapi/fcntl.h"
 
 #ifdef HAVE_SYS_XATTR_H
 #define XATTR_TEST_KEY "user.testkey"
@@ -50,6 +53,8 @@
 #define CHR      "setxattr02chr"
 #define BLK      "setxattr02blk"
 #define SOCK     "setxattr02sock"
+
+static int tmpdir_fd = -1;
 
 struct test_case {
 	char *fname;
@@ -122,39 +127,59 @@ static struct test_case tc[] = {
 
 static void verify_setxattr(unsigned int i)
 {
+	char *sysname;
+
 	/* some tests might require existing keys for each iteration */
 	if (tc[i].needskeyset) {
 		SAFE_SETXATTR(tc[i].fname, tc[i].key, tc[i].value, tc[i].size,
-				XATTR_CREATE);
+			XATTR_CREATE);
 	}
 
-	TEST(setxattr(tc[i].fname, tc[i].key, tc[i].value, tc[i].size,
-			tc[i].flags));
+	if (tst_variant) {
+		sysname = "setxattrat";
+
+		struct xattr_args args = {
+			.value = tc[i].value,
+			.size = tc[i].size,
+			.flags = tc[i].flags,
+		};
+
+		int at_flags = tc[i].needskeyset ? 0 : AT_SYMLINK_NOFOLLOW;
+
+		TEST(tst_syscall(__NR_setxattrat,
+			tmpdir_fd, tc[i].fname, at_flags,
+			tc[i].key, &args, sizeof(args)));
+	} else {
+		sysname = "setxattr";
+
+		TEST(setxattr(tc[i].fname, tc[i].key, tc[i].value, tc[i].size,
+				tc[i].flags));
+	}
 
 	if (TST_RET == -1 && TST_ERR == EOPNOTSUPP)
-		tst_brk(TCONF, "setxattr(2) not supported");
+		tst_brk(TCONF, "%s(2) not supported", sysname);
 
 	/* success */
 
 	if (!tc[i].exp_err) {
 		if (TST_RET) {
 			tst_res(TFAIL | TTERRNO,
-				"setxattr(2) on %s failed with %li",
-				tc[i].fname + OFFSET, TST_RET);
+				"%s(2) on %s failed with %li",
+				sysname, tc[i].fname + OFFSET, TST_RET);
 			return;
 		}
 
 		/* this is needed for subsequent iterations */
 		SAFE_REMOVEXATTR(tc[i].fname, tc[i].key);
 
-		tst_res(TPASS, "setxattr(2) on %s passed",
-				tc[i].fname + OFFSET);
+		tst_res(TPASS, "%s(2) on %s passed",
+				sysname, tc[i].fname + OFFSET);
 		return;
 	}
 
 	if (TST_RET == 0) {
-		tst_res(TFAIL, "setxattr(2) on %s passed unexpectedly",
-				tc[i].fname + OFFSET);
+		tst_res(TFAIL, "%s(2) on %s passed unexpectedly",
+				sysname, tc[i].fname + OFFSET);
 		return;
 	}
 
@@ -162,8 +187,8 @@ static void verify_setxattr(unsigned int i)
 
 	if (tc[i].exp_err != TST_ERR) {
 		tst_res(TFAIL | TTERRNO,
-				"setxattr(2) on %s should have failed with %s",
-				tc[i].fname + OFFSET,
+				"%s(2) on %s should have failed with %s",
+				sysname, tc[i].fname + OFFSET,
 				tst_strerrno(tc[i].exp_err));
 		return;
 	}
@@ -172,8 +197,8 @@ static void verify_setxattr(unsigned int i)
 	if (tc[i].needskeyset)
 		SAFE_REMOVEXATTR(tc[i].fname, tc[i].key);
 
-	tst_res(TPASS | TTERRNO, "setxattr(2) on %s failed",
-			tc[i].fname + OFFSET);
+	tst_res(TPASS | TTERRNO, "%s(2) on %s failed",
+			sysname, tc[i].fname + OFFSET);
 }
 
 static void setup(void)
@@ -187,12 +212,31 @@ static void setup(void)
 	SAFE_MKNOD(CHR, S_IFCHR | 0777, dev);
 	SAFE_MKNOD(BLK, S_IFBLK | 0777, 0);
 	SAFE_MKNOD(SOCK, S_IFSOCK | 0777, 0);
+
+	char *tmpdir = tst_tmpdir_path();
+	tmpdir_fd = SAFE_OPEN(tmpdir, O_DIRECTORY);
+}
+
+static void cleanup(void)
+{
+	if (tmpdir_fd != -1)
+		SAFE_CLOSE(tmpdir_fd);
+
+	SAFE_UNLINK(FILENAME);
+	SAFE_RMDIR(DIRNAME);
+	SAFE_UNLINK(SYMLINK);
+	SAFE_UNLINK(FIFO);
+	SAFE_UNLINK(CHR);
+	SAFE_UNLINK(BLK);
+	SAFE_UNLINK(SOCK);
 }
 
 static struct tst_test test = {
 	.setup = setup,
+	.cleanup = cleanup,
 	.test = verify_setxattr,
 	.tcnt = ARRAY_SIZE(tc),
+	.test_variants = 2,
 	.needs_tmpdir = 1,
 	.needs_root = 1,
 };
