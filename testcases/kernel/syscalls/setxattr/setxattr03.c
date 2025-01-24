@@ -32,6 +32,8 @@
 #include "lapi/fs.h"
 
 #include "tst_test.h"
+#include "lapi/syscalls.h"
+#include "lapi/xattr.h"
 
 #if defined HAVE_SYS_XATTR_H
 #define XATTR_TEST_KEY "user.testkey"
@@ -78,11 +80,24 @@ static struct test_case tc[] = {
 
 static int immu_fd;
 static int append_fd;
+static int tmpdir_fd = -1;
 
 static void verify_setxattr(unsigned int i)
 {
-	TEST(setxattr(tc[i].fname, tc[i].key, tc[i].value, tc[i].size,
-			tc[i].flags));
+	if (tst_variant) {
+		struct xattr_args args = {
+			.value = tc[i].value,
+			.size = tc[i].size,
+			.flags = tc[i].flags,
+		};
+
+		TEST(tst_syscall(__NR_setxattrat,
+			tmpdir_fd, tc[i].fname, AT_SYMLINK_NOFOLLOW,
+			tc[i].key, &args, sizeof(args)));
+	} else {
+		TEST(setxattr(tc[i].fname, tc[i].key, tc[i].value, tc[i].size,
+				tc[i].flags));
+	}
 
 	if (!TST_RET) {
 		tst_res(TFAIL, "%s succeeded unexpectedly", tc[i].desc);
@@ -145,10 +160,16 @@ static void setup(void)
 	if (set_append_on(append_fd))
 		tst_brk(TBROK | TERRNO, "Set %s append-only failed",
 			APPEND_FILE);
+
+	char *tmpdir = tst_tmpdir_path();
+	tmpdir_fd = SAFE_OPEN(tmpdir, O_DIRECTORY);
 }
 
 static void cleanup(void)
 {
+	if (tmpdir_fd != -1)
+		SAFE_CLOSE(tmpdir_fd);
+
 	if ((immu_fd > 0) && set_immutable_off(immu_fd))
 		tst_res(TWARN | TERRNO, "Unset %s immutable failed",
 			 IMMU_FILE);
@@ -169,6 +190,7 @@ static struct tst_test test = {
 	.cleanup = cleanup,
 	.test = verify_setxattr,
 	.tcnt = ARRAY_SIZE(tc),
+	.test_variants = 2,
 	.needs_tmpdir = 1,
 	.needs_root = 1,
 };
