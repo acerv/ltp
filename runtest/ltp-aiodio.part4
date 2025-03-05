@@ -3,7 +3,7 @@ aio02 aio02
 
 #Running dio_sparse & dirty tests
 DI000 dirty
-DS000 dio_sparse
+DS000 dio_sparse -n 1
 DI001 dirty
 DS001 dio_sparse
 DI002 dirty

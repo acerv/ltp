@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <sys/wait.h>
+#include "tst_kconfig.h"
 #include "tst_test.h"
 #include "common.h"
 
@@ -34,7 +35,7 @@ static char *str_offset;
 static int numchildren = 16;
 static long long writesize = 1024;
 static long long filesize = 100 * 1024 * 1024;
-static long long offset = 0;
+static long long offset;
 static long long alignment;
 
 static void dio_sparse(int fd, int align, long long fs, int ws, long long off)
@@ -61,9 +62,15 @@ static void dio_sparse(int fd, int align, long long fs, int ws, long long off)
 static void setup(void)
 {
 	struct stat sb;
+	static const char * const kconf_rt[] = {"CONFIG_PREEMPT_RT", NULL};
 
 	if (tst_parse_int(str_numchildren, &numchildren, 1, INT_MAX))
 		tst_brk(TBROK, "Invalid number of children '%s'", str_numchildren);
+
+	if (numchildren > 2 && !tst_kconfig_check(kconf_rt)) {
+		tst_res(TINFO, "Warning: This test may deadlock on RT kernels");
+		tst_res(TINFO, "If it does, reduce number of threads to 2");
+	}
 
 	if (tst_parse_filesize(str_writesize, &writesize, 1, LLONG_MAX))
 		tst_brk(TBROK, "Invalid write blocks size '%s'", str_writesize);
