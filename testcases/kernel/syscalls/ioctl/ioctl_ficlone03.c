@@ -122,5 +122,9 @@ static struct tst_test test = {
 	.bufs = (struct tst_buffers []) {
 		{&clone_range, .size = sizeof(struct file_clone_range)},
 		{},
-	}
+	},
+	.caps = (struct tst_cap []) {
+		TST_CAP(TST_CAP_REQ, CAP_LINUX_IMMUTABLE),
+		{}
+	},
 };
