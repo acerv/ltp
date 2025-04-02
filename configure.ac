@@ -48,7 +48,6 @@ AC_CHECK_DECLS([PR_CAPBSET_DROP, PR_CAPBSET_READ],,,[#include <sys/prctl.h>])
 AC_CHECK_DECLS([SEM_STAT_ANY],,,[#include <sys/sem.h>])
 
 AC_CHECK_HEADERS_ONCE([ \
-    asm/ldt.h \
     asm/prctl.h \
     cpuid.h \
     emmintrin.h \
