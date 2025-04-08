@@ -1,0 +1,50 @@
+# Copyright (c) 2025 Andrea Cervesato <andrea.cervesato@suse.com>
+
+name: "Patchwork checker"
+on: [push]
+
+jobs:
+  checker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v1
+
+      - name: Verify new patches
+        id: verify
+        run: |
+          output=$(./ci/patchwork-ci.sh verify)
+          echo "SERIES=$output" >> $GITHUB_ENV
+
+      - name: Run tests
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = process.env.SERIES;
+            if (output.length === 0) {
+              console.log("Script output is empty");
+              return;
+            }
+
+            const series = output.split(';');
+            if (series.length === 0) {
+              console.log("No new patch-series found");
+              return;
+            }
+
+            for (const pair of series) {
+              const [series_id, series_mbox] = pair.split(':');
+              const response = await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: context.ref,
+                workflow_id: 'ci-docker-build.yml',
+                inputs: {
+                  SERIES_ID: series_id,
+                  SERIES_MBOX: series_mbox,
+                }
+              });
+
+              console.log(response);
+            }

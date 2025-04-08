@@ -4,7 +4,7 @@
 
 # workaround for missing oldstable-updates repository
 # W: Failed to fetch http://deb.debian.org/debian/dists/oldstable-updates/main/binary-amd64/Packages
-grep -v oldstable-updates /etc/apt/sources.list > /tmp/sources.list && mv /tmp/sources.list /etc/apt/sources.list
+grep -v oldstable-updates /etc/apt/sources.list >/tmp/sources.list && mv /tmp/sources.list /etc/apt/sources.list
 
 apt update
 
@@ -23,6 +23,8 @@ pkg_minimal="
 	debhelper
 	devscripts
 	clang
+	curl
+	jq
 	gcc
 	git
 	iproute2
@@ -47,18 +49,18 @@ pkg_nonessential="
 "
 
 case "$ACTION" in
-	minimal)
-		echo "=== Installing only minimal dependencies ==="
-		$install $pkg_minimal
-		;;
-	remove-nonessential)
-		echo "=== Make sure devel libraries are removed ==="
-		$remove $pkg_nonessential
-		;;
-	*)
-		echo "=== Installing dependencies ==="
-		$install $pkg_minimal $pkg_nonessential
-		;;
+minimal)
+	echo "=== Installing only minimal dependencies ==="
+	$install $pkg_minimal
+	;;
+remove-nonessential)
+	echo "=== Make sure devel libraries are removed ==="
+	$remove $pkg_nonessential
+	;;
+*)
+	echo "=== Installing dependencies ==="
+	$install $pkg_minimal $pkg_nonessential
+	;;
 esac
 
 df -hT
