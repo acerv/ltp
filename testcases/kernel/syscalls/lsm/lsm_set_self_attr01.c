@@ -56,7 +56,7 @@ static struct tcase {
 		.msg = "flags must be zero",
 	},
 	{
-		.attr = LSM_ATTR_CURRENT | LSM_ATTR_EXEC,
+		.attr = LSM_ATTR_CURRENT | LSM_ATTR_PREV,
 		.ctx = &ctx,
 		.size = &ctx_size,
 		.exp_errno = EINVAL,
