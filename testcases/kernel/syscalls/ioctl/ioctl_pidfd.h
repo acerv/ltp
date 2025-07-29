@@ -11,7 +11,7 @@
 
 static inline int ioctl_pidfd_info_exit_supported(void)
 {
-	int ret = 0;
+	int ret;
 	pid_t pid;
 	int pidfd;
 	struct pidfd_info info;
@@ -29,13 +29,17 @@ static inline int ioctl_pidfd_info_exit_supported(void)
 	pidfd = SAFE_PIDFD_OPEN(pid, 0);
 	SAFE_WAITPID(pid, NULL, 0);
 
-	SAFE_IOCTL(pidfd, PIDFD_GET_INFO, &info);
+	ret = ioctl(pidfd, PIDFD_GET_INFO, &info);
+	if (ret == -1) {
+		if (errno != ENOTTY)
+			tst_brk(TBROK | TERRNO, "ioctl error");
+	} else {
+		if (info.mask & PIDFD_INFO_EXIT)
+			return 1;
+	}
+
 	SAFE_CLOSE(pidfd);
-
-	if (info.mask & PIDFD_INFO_EXIT)
-		ret = 1;
-
-	return ret;
+	return 0;
 }
 
 #endif
