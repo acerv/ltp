@@ -12,7 +12,6 @@ env:
 
 jobs:
   checker:
-    if: ${{ github.repository == 'linux-test-project/ltp' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
