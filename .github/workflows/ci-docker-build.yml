@@ -19,6 +19,56 @@ permissions:
   contents: read # to fetch code (actions/checkout)
 
 jobs:
+  precheck:
+    # TODO: remove hardcoded values after testing
+    env:
+      SERIES_ID: '496249'
+      SERIES_MBOX: 'https://patchwork.ozlabs.org/series/496249/mbox/'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Git checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y perl gcc make autoconf automake
+
+    # TODO: remove once patch-precheck.sh is merged into master
+    - name: Save precheck scripts
+      run: |
+        cp -a ci/tools /tmp/precheck-tools
+
+    - name: Apply Patchwork series
+      env:
+        PATCHWORK_TOKEN: ${{ secrets.PATCHWORK_TOKEN }}
+      run: |
+        git config --global user.name 'GitHub CI'
+        git config --global user.email 'github@example.com'
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        git fetch origin master:master
+        git checkout -b review_patch_series_"$SERIES_ID" master
+        curl -k -L --retry 3 --max-redirs 1 --location-trusted "$SERIES_MBOX" | git am
+
+    - name: Autotools
+      run: ./build.sh -r autotools
+
+    - name: Configure
+      run: ./build.sh -r configure -o in -t native -c gcc
+
+    - name: Run prechecks
+      env:
+        PATCHWORK_TOKEN: ${{ secrets.PATCHWORK_TOKEN }}
+      run: |
+        TOP_SRCDIR="$GITHUB_WORKSPACE" /tmp/precheck-tools/patch-precheck.sh \
+          -s "$SERIES_ID" \
+          -u "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          -b master
+
   job:
     runs-on: ubuntu-latest
 
