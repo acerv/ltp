@@ -15,10 +15,6 @@ on:
         description: LTP patch series ID
         required: false
         default: ''
-      SERIES_MBOX:
-        description: LTP patch series URL
-        required: false
-        default: ''
 
 permissions: {}
 
@@ -34,34 +30,65 @@ jobs:
           sudo apt update
           sudo apt install autoconf make python3-virtualenv
 
-      - name: Apply Patchwork series
-        if: inputs.SERIES_ID != '' && inputs.SERIES_MBOX != ''
+      - name: Install pwclient and b4
+        if: inputs.SERIES_ID != ''
         env:
+          PATCHWORK_URL: https://patchwork.ozlabs.org
           PATCHWORK_TOKEN: ${{ secrets.PATCHWORK_TOKEN }}
+        run: |
+          pip install 'pwclient @ git+https://github.com/getpatchwork/pwclient' b4
+
+          cat > ~/.pwclientrc <<EOF
+          [options]
+          default = ltp
+
+          [ltp]
+          backend = rest
+          url = $PATCHWORK_URL/api/
+          token = $PATCHWORK_TOKEN
+          EOF
+
+      - name: Apply Patchwork series
+        if: inputs.SERIES_ID != ''
         run: |
           git config --global user.name 'GitHub CI'
           git config --global user.email 'github@example.com'
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-          git checkout -b review_patch_series_"${{ inputs.SERIES_ID }}"
-          curl -k -L --retry 3 --max-redirs 1 --location-trusted "${{ inputs.SERIES_MBOX }}" | git am
+          msgid=$(pwclient list -p ltp -S "${{ inputs.SERIES_ID }}" -f '%{msgid}' | head -1)
 
-          ./ci/tools/patchwork.sh state "${{ inputs.SERIES_ID }}" "needs-review-ack"
+          git checkout -b review_patch_series_"${{ inputs.SERIES_ID }}"
+          b4 shazam "$msgid"
+
+          pwclient update -p ltp -s "needs-review-ack" \
+            $(pwclient list -p ltp -S "${{ inputs.SERIES_ID }}" -f '%{id}')
 
       - name: Run configure
         run: |
           make autotools && ./configure
 
       - name: Send results to Patchwork
-        if: always() && inputs.SERIES_ID != '' && inputs.SERIES_MBOX != ''
-        env:
-          PATCHWORK_TOKEN: ${{ secrets.PATCHWORK_TOKEN }}
+        if: always() && inputs.SERIES_ID != ''
         run: |
-          ./ci/tools/patchwork.sh check \
-            "${{ inputs.SERIES_ID }}" \
-            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            "${{ matrix.container }}" \
-            "${{ job.status }}"
+          result="${{ job.status }}"
+          [ "$result" = "cancelled" ] && exit 0
+
+          state="fail"
+          case "$result" in
+            success|pending) state=$result;;
+          esac
+
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          for patch_id in $(pwclient list -p ltp -S "${{ inputs.SERIES_ID }}" -f '%{id}'); do
+            [ -z "$patch_id" ] && continue
+
+            echo "Posting check for patch $patch_id: state=$state"
+            pwclient check-create -p ltp \
+              -s "$state" -c "github-build-sphinx" \
+              -u "$target_url" -d "$result" \
+              "$patch_id"
+          done
 
       - name: Install sphinx dependencies
         run: |

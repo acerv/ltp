@@ -8,65 +8,102 @@ on:
     - cron: '*/45 * * * 6,0'
 
 env:
-  PATCHWORK_CI_FILE: patchwork-ci-output.txt
+  PATCHWORK_URL: https://patchwork.ozlabs.org
+  PATCHWORK_CI_PREFIX: github-build
+  # Look back 60 minutes to account for schedule drift
+  PATCHWORK_SINCE: 3600
 
 jobs:
   checker:
     if: ${{ github.repository == 'linux-test-project/ltp' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Git checkout
-        uses: actions/checkout@v1
-
-      - name: Verify new patches
-        id: verify
+      - name: Install pwclient
         run: |
-          ./ci/tools/patchwork.sh verify > "$PATCHWORK_CI_FILE"
-          cat "$PATCHWORK_CI_FILE"
+          pip install 'pwclient @ git+https://github.com/getpatchwork/pwclient'
 
-      - name: Run tests
-        if: success()
+          cat > ~/.pwclientrc <<EOF
+          [options]
+          default = ltp
+
+          [ltp]
+          backend = rest
+          url = $PATCHWORK_URL/api/
+          EOF
+
+      - name: Fetch new series from Patchwork
+        id: fetch
+        run: |
+          current_time=$(date +%s)
+          since_time=$((current_time - PATCHWORK_SINCE))
+          since=$(date -u -d @$since_time +"%Y-%m-%dT%H:%M:%SZ")
+
+          pwclient event-list -p ltp -c series-completed \
+            --since "$since" -f '%{series_id}' > series.txt
+
+          cat series.txt
+
+      - name: Filter already-tested series
+        id: filter
+        run: |
+          touch dispatch.txt
+
+          while read -r series_id; do
+            [ -z "$series_id" ] && continue
+
+            patch_ids=$(pwclient list -p ltp -S "$series_id" -f '%{id}')
+
+            tested=false
+            for patch_id in $patch_ids; do
+              context=$(pwclient check-get -p ltp "$patch_id" -f '%{context}' 2>/dev/null || true)
+              if echo "$context" | grep -q "^${PATCHWORK_CI_PREFIX}"; then
+                tested=true
+                break
+              fi
+            done
+
+            if [ "$tested" = false ]; then
+              echo "$series_id" >> dispatch.txt
+            fi
+          done < series.txt
+
+          echo "count=$(wc -l < dispatch.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          cat dispatch.txt
+
+      - name: Dispatch CI workflows
+        if: steps.filter.outputs.count != '0'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
 
-            const output = fs.readFileSync(process.env.PATCHWORK_CI_FILE, 'utf8');
+            const output = fs.readFileSync('dispatch.txt', 'utf8');
             if (output.length === 0) {
-              console.log("'patchwork-ci.sh verify' output is empty");
-              return;
-            }
-
-            const lines = output.split('\n');
-            if (lines.length === 0) {
               console.log("No new patch-series found");
               return;
             }
+
+            const lines = output.trim().split('\n');
 
             const workflows = [
               'ci-docker-build.yml',
               'ci-sphinx-doc.yml'
             ];
 
-            for (const data of lines) {
-              const [series_id, series_mbox] = data.split('|');
-              if (series_id.length === 0 || series_mbox.length === 0) {
-                console.log(`Malformed data: ${data}`);
-                continue;
-              }
+            for (const line of lines) {
+              const series_id = line.trim();
+              if (!series_id) continue;
 
               for (const workflow of workflows) {
-                const response = await github.rest.actions.createWorkflowDispatch({
+                console.log(`Dispatching ${workflow} for series ${series_id}`);
+                await github.rest.actions.createWorkflowDispatch({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   ref: context.ref,
                   workflow_id: workflow,
                   inputs: {
                     SERIES_ID: series_id,
-                    SERIES_MBOX: series_mbox,
                   }
                 });
-
-                console.log(response);
-              };
+              }
             }
