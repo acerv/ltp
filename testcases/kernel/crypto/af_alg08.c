@@ -27,6 +27,7 @@
 #include "tst_test.h"
 #include "tst_af_alg.h"
 #include "lapi/socket.h"
+#include "lapi/splice.h"
 
 #define TESTFILE "copy_fail"
 #define OVERWRITE_SIZE 4

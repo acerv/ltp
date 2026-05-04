@@ -14,6 +14,7 @@
 
 #include "tst_test.h"
 #include "lapi/fcntl.h"
+#include "lapi/splice.h"
 #include "lapi/tee.h"
 
 #define TEST_BLOCK_SIZE 1024

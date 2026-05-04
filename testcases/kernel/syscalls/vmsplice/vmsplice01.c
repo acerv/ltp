@@ -15,6 +15,7 @@
 
 #include "tst_test.h"
 #include "lapi/fcntl.h"
+#include "lapi/splice.h"
 #include "lapi/vmsplice.h"
 
 #define TEST_BLOCK_SIZE (1<<17)	/* 128K */
