@@ -15,7 +15,6 @@
 #include "tst_test.h"
 #include "lapi/fcntl.h"
 #include "lapi/tee.h"
-#include "lapi/splice.h"
 
 #define TEST_BLOCK_SIZE 1024
 
@@ -58,17 +57,13 @@ static void tee_test(void)
 	SAFE_PIPE(pipe1);
 	SAFE_PIPE(pipe2);
 
-	ret = splice(fd_in, NULL, pipe1[1], NULL, TEST_BLOCK_SIZE, 0);
-	if (ret < 0)
-		tst_brk(TBROK | TERRNO, "splice(fd_in, pipe1) failed");
+	SAFE_SPLICE(fd_in, NULL, pipe1[1], NULL, TEST_BLOCK_SIZE, 0);
 
 	ret = tee(pipe1[0], pipe2[1], TEST_BLOCK_SIZE, SPLICE_F_NONBLOCK);
 	if (ret < 0)
 		tst_brk(TBROK | TERRNO, "tee() failed");
 
-	ret = splice(pipe2[0], NULL, fd_out, NULL, TEST_BLOCK_SIZE, 0);
-	if (ret < 0)
-		tst_brk(TBROK | TERRNO, "splice(pipe2, fd_out) failed");
+	SAFE_SPLICE(pipe2[0], NULL, fd_out, NULL, TEST_BLOCK_SIZE, 0);
 
 	SAFE_CLOSE(pipe2[0]);
 	SAFE_CLOSE(pipe2[1]);
