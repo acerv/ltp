@@ -1,152 +1,62 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- *
- *   Copyright (c) International Business Machines  Corp., 2001
- *
- *   This program is free software;  you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY;  without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with this program;  if not, write to the Free Software
- *   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * Copyright (c) International Business Machines Corp., 2001
+ * Ported by Wayne Boyer
  */
 
-/*
- * Test Name: listen01
+/*\
+ * Verify that :manpage:`listen(2)` fails with the correct errno for
+ * various error conditions:
  *
- * Test Description:
- *  Verify that listen() returns the proper errno for various failure cases
- *
- * Usage:  <for command-line>
- *  listen01 [-c n] [-e] [-i n] [-I x] [-P x] [-t]
- *     where,  -c n : Run n copies concurrently.
- *             -e   : Turn on errno logging.
- *	       -i n : Execute test n times.
- *	       -I x : Execute test for x seconds.
- *	       -P x : Pause for x seconds between iterations.
- *	       -t   : Turn on syscall timing.
- *
- * HISTORY
- *	07/2001 Ported by Wayne Boyer
- *
- * RESTRICTIONS:
- *  None.
- *
+ * - EBADF when the socket argument is not a valid file descriptor
+ * - ENOTSOCK when the socket argument is not a socket
+ * - EOPNOTSUPP when the socket does not support listen (UDP)
  */
 
-#include <stdio.h>
-#include <unistd.h>
-#include <errno.h>
-#include <fcntl.h>
-
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/signal.h>
-#include <sys/un.h>
-
 #include <netinet/in.h>
 
-#include "test.h"
-#include "tso_safe_macros.h"
+#include "tst_test.h"
 
-char *TCID = "listen01";
-int testno;
+static int bad_fd = 400;
+static int dev_null_fd = -1;
+static int udp_fd = -1;
 
-int s;				/* socket descriptor */
+static struct tcase {
+	int *fd;
+	int exp_errno;
+	const char *desc;
+} tcases[] = {
+	{&bad_fd, EBADF, "bad file descriptor"},
+	{&dev_null_fd, ENOTSOCK, "not a socket"},
+	{&udp_fd, EOPNOTSUPP, "UDP listen"},
+};
 
-void setup(void), setup0(void), setup1(void),
-cleanup(void), cleanup0(void), cleanup1(void);
-
-struct test_case_t {		/* test case structure */
-	int domain;		/* PF_INET, PF_UNIX, ... */
-	int type;		/* SOCK_STREAM, SOCK_DGRAM ... */
-	int proto;		/* protocol number (usually 0 = default) */
-	int backlog;		/* connect's 3rd argument */
-	int retval;		/* syscall return value */
-	int experrno;		/* expected errno */
-	void (*setup) (void);
-	void (*cleanup) (void);
-	char *desc;
-} tdat[] = {
-	{
-	0, 0, 0, 0, -1, EBADF, setup0, cleanup0, "bad file descriptor"}, {
-	0, 0, 0, 0, -1, ENOTSOCK, setup0, cleanup0, "not a socket"}, {
-PF_INET, SOCK_DGRAM, 0, 0, -1, EOPNOTSUPP, setup1, cleanup1,
-		    "UDP listen"},};
-
-int TST_TOTAL = sizeof(tdat) / sizeof(tdat[0]);
-
-int main(int argc, char *argv[])
+static void setup(void)
 {
-	int lc;
-
-	tst_parse_opts(argc, argv, NULL, NULL);
-
-	setup();
-
-	for (lc = 0; TEST_LOOPING(lc); ++lc) {
-		tst_count = 0;
-		for (testno = 0; testno < TST_TOTAL; ++testno) {
-			tdat[testno].setup();
-
-			TEST(listen(s, tdat[testno].backlog));
-			if (TEST_RETURN != tdat[testno].retval ||
-			    (TEST_RETURN < 0 &&
-			     TEST_ERRNO != tdat[testno].experrno)) {
-				tst_resm(TFAIL, "%s ; returned"
-					 " %ld (expected %d), errno %d (expected"
-					 " %d)", tdat[testno].desc,
-					 TEST_RETURN, tdat[testno].retval,
-					 TEST_ERRNO, tdat[testno].experrno);
-			} else {
-				tst_resm(TPASS, "%s successful",
-					 tdat[testno].desc);
-			}
-			tdat[testno].cleanup();
-		}
-	}
-	cleanup();
-
-	tst_exit();
+	dev_null_fd = SAFE_OPEN("/dev/null", O_WRONLY);
+	udp_fd = SAFE_SOCKET(PF_INET, SOCK_DGRAM, 0);
 }
 
-void setup(void)
+static void run(unsigned int i)
 {
-	TEST_PAUSE;
+	struct tcase *tc = &tcases[i];
+
+	TST_EXP_FAIL(listen(*tc->fd, 0), tc->exp_errno, "%s", tc->desc);
 }
 
-void cleanup(void)
+static void cleanup(void)
 {
+	if (dev_null_fd != -1)
+		SAFE_CLOSE(dev_null_fd);
+
+	if (udp_fd != -1)
+		SAFE_CLOSE(udp_fd);
 }
 
-void setup0(void)
-{
-	if (tdat[testno].experrno == EBADF)
-		s = 400;	/* anything not an open file */
-	else if ((s = open("/dev/null", O_WRONLY)) == -1)
-		tst_brkm(TBROK, cleanup, "error opening /dev/null - "
-			 "errno: %s", strerror(errno));
-}
-
-void cleanup0(void)
-{
-	s = -1;
-}
-
-void setup1(void)
-{
-	s = SAFE_SOCKET(cleanup, tdat[testno].domain, tdat[testno].type,
-		        tdat[testno].proto);
-}
-
-void cleanup1(void)
-{
-	(void)close(s);
-	s = -1;
-}
+static struct tst_test test = {
+	.test = run,
+	.tcnt = ARRAY_SIZE(tcases),
+	.setup = setup,
+	.cleanup = cleanup,
+};
