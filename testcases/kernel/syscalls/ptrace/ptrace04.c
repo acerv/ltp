@@ -1,26 +1,34 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * make sure PEEKUSER matches GETREGS
- *
  * Copyright (c) 2008 Analog Devices Inc.
+ * Copyright (c) Linux Test Project, 2008-2026
+ */
+
+/*\
+ * Verify that :manpage:`ptrace(2)` PTRACE_PEEKUSER returns the same register
+ * values as PTRACE_GETREGS for a stopped child process.
  *
- * Licensed under the GPL-2 or later
+ * A child is forked and ptraced. The parent reads each register via
+ * PTRACE_PEEKUSER and compares with the corresponding field obtained via
+ * PTRACE_GETREGS. The comparison is done twice with different memset poison
+ * bytes (0x00 and 0xff) to detect partial-read issues. The sequence is
+ * repeated after advancing the child past a syscall boundary with
+ * PTRACE_SYSCALL.
  */
 
 #define _GNU_SOURCE
 
 #include <errno.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+#include <string.h>
+#include <signal.h>
 #include <sys/ptrace.h>
+#include <sys/wait.h>
 
-#include "test.h"
-#include "spawn_ptrace_child.h"
+#include "tst_test.h"
 
-char *TCID = "ptrace04";
-
-static void cleanup();
+#if defined(HAVE_STRUCT_PTRACE_REGS) && defined(PTRACE_GETREGS)
 
 #define R(r) { .name = "PT_" #r, .off = PT_##r },
 static struct {
@@ -43,88 +51,103 @@ static struct {
 #endif
 };
 
-int TST_TOTAL = 2;
-
-void compare_registers(unsigned char poison)
+static void compare_registers(pid_t child, unsigned char poison)
 {
-#if defined(HAVE_STRUCT_PTRACE_REGS) && defined(PTRACE_GETREGS)
-	ptrace_regs _pt_regs;
+	ptrace_regs pt_regs;
 	size_t i;
 	long ret;
 	bool failed = false;
 
-	memset(&_pt_regs, poison, sizeof(_pt_regs));
+	memset(&pt_regs, poison, sizeof(pt_regs));
 	errno = 0;
-	ret = ptrace(PTRACE_GETREGS, pid, NULL, &_pt_regs);
+	ret = ptrace(PTRACE_GETREGS, child, NULL, &pt_regs);
 	if (ret && errno) {
-		tst_resm(TFAIL | TERRNO, "PTRACE_GETREGS failed");
-	} else {
+		tst_res(TFAIL | TERRNO, "PTRACE_GETREGS failed");
+		return;
+	}
 
-		for (i = 0; i < ARRAY_SIZE(regs); ++i) {
-			errno = 0;
-			ret = ptrace(PTRACE_PEEKUSER, pid,
-				     (void *)regs[i].off, NULL);
-			if (ret && errno) {
-				tst_resm(TFAIL | TERRNO,
-					 "PTRACE_PEEKUSER: register %s "
-					 "(offset %li) failed",
-					 regs[i].name, regs[i].off);
-				failed = true;
-				continue;
-			}
-
-			long *pt_val = (void *)&_pt_regs + regs[i].off;
-			if (*pt_val != ret) {
-				tst_resm(TFAIL,
-					 "register %s (offset %li) did not "
-					 "match\n\tGETREGS: 0x%08lx "
-					 "PEEKUSER: 0x%08lx",
-					 regs[i].name, regs[i].off, *pt_val,
-					 ret);
-				failed = true;
-			}
-
+	for (i = 0; i < ARRAY_SIZE(regs); ++i) {
+		errno = 0;
+		ret = ptrace(PTRACE_PEEKUSER, child,
+				(void *)regs[i].off, NULL);
+		if (ret && errno) {
+			tst_res(TFAIL | TERRNO,
+				"PTRACE_PEEKUSER: register %s (offset %li) failed",
+				regs[i].name, regs[i].off);
+			failed = true;
+			continue;
 		}
 
+		long *pt_val = (void *)&pt_regs + regs[i].off;
+
+		if (*pt_val != ret) {
+			tst_res(TFAIL,
+				"register %s (offset %li) did not match: GETREGS: 0x%08lx PEEKUSER: 0x%08lx",
+				regs[i].name, regs[i].off, *pt_val, ret);
+			failed = true;
+		}
 	}
 
-	tst_resm((failed ? TFAIL : TPASS),
-		 "PTRACE PEEKUSER/GETREGS (poison 0x%02x)", poison);
-#else
-	tst_brkm(TCONF, cleanup, "System doesn't have ptrace_regs structure");
-#endif
+	tst_res(failed ? TFAIL : TPASS,
+		"PTRACE PEEKUSER/GETREGS (poison 0x%02x)", poison);
 }
 
-int main(int argc, char *argv[])
+static void run(void)
 {
-	tst_parse_opts(argc, argv, NULL, NULL);
+	pid_t child;
+	int status;
 
 	if (ARRAY_SIZE(regs) == 0)
-		tst_brkm(TCONF, NULL, "test not supported for your arch (yet)");
+		tst_brk(TCONF, "test not supported for this arch");
 
-	make_a_baby(argc, argv);
+	child = SAFE_FORK();
 
-	/* first compare register states when execl() syscall starts */
-	tst_resm(TINFO, "Before exec() in child");
-	compare_registers(0x00);
-	compare_registers(0xff);
+	if (!child) {
+		SAFE_PTRACE(PTRACE_TRACEME, 0, NULL, NULL);
+		raise(SIGSTOP);
 
-	/* then compare register states after execl() syscall finishes */
-	tst_resm(TINFO, "After exec() in child");
-	errno = 0;
-	if (ptrace(PTRACE_SYSCALL, pid, NULL, NULL) && errno) {
-		tst_brkm(TFAIL, NULL, "PTRACE_SYSCALL failed: %s",
-			 strerror(errno));
+		/* keep the child alive doing harmless syscalls */
+		int i = 60;
+
+		while (i--)
+			close(-100);
+
+		exit(0);
 	}
-	compare_registers(0x00);
-	compare_registers(0xff);
 
-	/* hopefully this worked */
-	ptrace(PTRACE_KILL, pid, NULL, NULL);
+	SAFE_WAITPID(child, &status, WUNTRACED);
+	if (!WIFSTOPPED(status)) {
+		tst_brk(TBROK, "child was not stopped: %s",
+			tst_strstatus(status));
+	}
 
-	tst_exit();
+	tst_res(TINFO, "Child stopped, comparing registers");
+	compare_registers(child, 0x00);
+	compare_registers(child, 0xff);
+
+	/* advance child past one syscall boundary */
+	errno = 0;
+	if (ptrace(PTRACE_SYSCALL, child, NULL, NULL) && errno)
+		tst_brk(TBROK | TERRNO, "PTRACE_SYSCALL failed");
+
+	SAFE_WAITPID(child, &status, 0);
+	if (!WIFSTOPPED(status)) {
+		tst_brk(TBROK, "child not stopped after PTRACE_SYSCALL: %s",
+			tst_strstatus(status));
+	}
+
+	tst_res(TINFO, "After syscall in child");
+	compare_registers(child, 0x00);
+	compare_registers(child, 0xff);
+
+	SAFE_PTRACE(PTRACE_KILL, child, NULL, NULL);
 }
 
-static void cleanup(void)
-{
-}
+static struct tst_test test = {
+	.test_all = run,
+	.forks_child = 1,
+};
+
+#else
+TST_TEST_TCONF("system does not have ptrace_regs structure or PTRACE_GETREGS");
+#endif
