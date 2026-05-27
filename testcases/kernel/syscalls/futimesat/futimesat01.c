@@ -1,134 +1,79 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Copyright (c) 2016 Oracle and/or its affiliates. All Rights Reserved.
  * Copyright (c) International Business Machines  Corp., 2006
+ * Copyright (c) 2016 Oracle and/or its affiliates. All Rights Reserved.
+ * Author: Yi Yang <yyangcdl@cn.ibm.com>
+ */
+
+/*\
+ * Verify basic functionality of :manpage:`futimesat(2)`.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it would be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
- * DESCRIPTION
- *	This test case will verify basic function of futimesat
- *	added by kernel 2.6.16 or up.
- *
- * Author
- *	Yi Yang <yyangcdl@cn.ibm.com>
+ * - futimesat() with a directory fd and relative path succeeds
+ * - futimesat() with a directory fd and absolute path succeeds
+ * - futimesat() with a regular file fd fails with ENOTDIR
+ * - futimesat() with an invalid fd fails with EBADF
+ * - futimesat() with AT_FDCWD and relative path succeeds
  */
 
 #define _GNU_SOURCE
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <sys/time.h>
-#include <fcntl.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <string.h>
-#include <signal.h>
-#include "test.h"
-#include "tso_safe_macros.h"
+#include "tst_test.h"
 #include "lapi/syscalls.h"
 
-#define TEST_CASES 5
-#ifndef AT_FDCWD
-#define AT_FDCWD -100
-#endif
+#define TESTDIR		"futimesattestdir"
+#define TESTFILE	"futimesattestfile.txt"
+#define TESTFILE_INDIR	TESTDIR "/" TESTFILE
 
-void setup();
-void cleanup();
+static int dir_fd = -1;
+static int file_fd = -1;
+static char *abs_path;
 
-char *TCID = "futimesat01";
-int TST_TOTAL = TEST_CASES;
-
-static const char pathname[] = "futimesattestdir",
-		  testfile[] = "futimesattestfile.txt",
-		  testfile2[] = "futimesattestdir/futimesattestfile.txt";
-static char *testfile3;
-
-static int fds[TEST_CASES];
-static const char *filenames[TEST_CASES];
-static const int expected_errno[] = { 0, 0, ENOTDIR, EBADF, 0 };
-
-int myfutimesat(int dirfd, const char *filename, struct timeval *times)
+static void run(void)
 {
-	return tst_syscall(__NR_futimesat, dirfd, filename, times);
-}
-
-int main(int ac, char **av)
-{
-	int lc, i;
 	struct timeval times[2];
 
-	tst_parse_opts(ac, av, NULL, NULL);
+	gettimeofday(&times[0], NULL);
+	gettimeofday(&times[1], NULL);
 
-	setup();
+	TST_EXP_PASS(tst_syscall(__NR_futimesat, dir_fd, TESTFILE, times),
+			"dir fd, relative path");
 
-	for (lc = 0; TEST_LOOPING(lc); lc++) {
-		tst_count = 0;
+	TST_EXP_PASS(tst_syscall(__NR_futimesat, dir_fd, abs_path, times),
+			"dir fd, absolute path");
 
-		for (i = 0; i < TST_TOTAL; i++) {
-			gettimeofday(&times[0], NULL);
-			gettimeofday(&times[1], NULL);
-			TEST(myfutimesat(fds[i], filenames[i], times));
+	TST_EXP_FAIL(tst_syscall(__NR_futimesat, file_fd, TESTFILE, times),
+			ENOTDIR, "regular file fd");
 
-			if (TEST_ERRNO == expected_errno[i]) {
-				tst_resm(TPASS | TTERRNO,
-					 "futimesat() returned expected errno");
-			} else {
-				tst_resm(TFAIL | TTERRNO, "futimesat() failed");
-			}
-		}
+	TST_EXP_FAIL(tst_syscall(__NR_futimesat, 100, TESTFILE, times),
+			EBADF, "invalid fd");
 
-	}
-
-	cleanup();
-	tst_exit();
+	TST_EXP_PASS(tst_syscall(__NR_futimesat, AT_FDCWD, TESTFILE, times),
+			"AT_FDCWD");
 }
 
-void setup(void)
+static void setup(void)
 {
-	tst_sig(NOFORK, DEF_HANDLER, cleanup);
+	abs_path = tst_tmpdir_genpath("futimesatfile3.txt");
 
-	tst_tmpdir();
+	SAFE_MKDIR(TESTDIR, 0700);
+	SAFE_FILE_PRINTF(TESTFILE, TESTFILE);
+	SAFE_FILE_PRINTF(TESTFILE_INDIR, TESTFILE_INDIR);
 
-	char *abs_path = tst_get_tmpdir();
-
-	SAFE_ASPRINTF(cleanup, &testfile3, "%s/futimesatfile3.txt", abs_path);
-	free(abs_path);
-
-	SAFE_MKDIR(cleanup, pathname, 0700);
-
-	fds[0] = SAFE_OPEN(cleanup, pathname, O_DIRECTORY);
-	fds[1] = fds[0];
-
-	SAFE_FILE_PRINTF(cleanup, testfile, testfile);
-	SAFE_FILE_PRINTF(cleanup, testfile2, testfile2);
-
-	fds[2] = SAFE_OPEN(cleanup, testfile3, O_CREAT | O_RDWR, 0600);
-
-	fds[3] = 100;
-	fds[4] = AT_FDCWD;
-
-	filenames[0] = filenames[2] = filenames[3] = filenames[4] = testfile;
-	filenames[1] = testfile3;
-
-	TEST_PAUSE;
+	dir_fd = SAFE_OPEN(TESTDIR, O_DIRECTORY);
+	file_fd = SAFE_OPEN(abs_path, O_CREAT | O_RDWR, 0600);
 }
 
-void cleanup(void)
+static void cleanup(void)
 {
-	if (fds[0] > 0)
-		close(fds[0]);
-	if (fds[2] > 0)
-		close(fds[2]);
-
-	free(testfile3);
-	tst_rmdir();
+	if (dir_fd != -1)
+		SAFE_CLOSE(dir_fd);
+	if (file_fd != -1)
+		SAFE_CLOSE(file_fd);
 }
+
+static struct tst_test test = {
+	.test_all = run,
+	.setup = setup,
+	.cleanup = cleanup,
+	.needs_tmpdir = 1,
+};
