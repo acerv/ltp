@@ -1,125 +1,70 @@
-/* 01/02/2003	Port to LTP	avenkat@us.ibm.com */
-/* 06/30/2001	Port to Linux	nsharoff@us.ibm.com */
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- *   Copyright (c) International Business Machines  Corp., 2003
- *
- *   This program is free software;  you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY;  without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with this program;  if not, write to the Free Software
- *   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * Copyright (c) International Business Machines Corp., 2003
+ * Copyright (c) Linux Test Project, 2003-2026
+ * Ported to LTP: 01/02/2003 avenkat@us.ibm.com
+ * Ported to Linux: 06/30/2001 nsharoff@us.ibm.com
  */
 
-/* as_anon_get:
- *	This program tests the kernel primitive as_anon_get by using up lots of
- *	level 2 page tables causing the kernel to switch to large blocks of
- *	anonymous backing store allocation.  This is done by allocating pages 4
- *	megs apart since each pt handles 1024 pages of 4096 bytes each.  Each
- *	page thus requires another page table.  The pages are then unmapped to
- *	switch back to small swap space allocations.
+/*\
+ * Verify that :manpage:`mmap(2)` handles large-scale anonymous page table
+ * allocation and deallocation.
+ *
+ * [Algorithm]
+ *
+ * - Round the program break up to a page boundary with sbrk()
+ * - Map 256 anonymous private pages spaced 4 MB apart, forcing one
+ *   page table per mapping and exercising large-block anonymous backing
+ *   store allocation
+ * - Unmap the entire range to release the page tables
  */
-#include <sys/types.h>
+
 #include <sys/mman.h>
-#include <unistd.h>
-#include <errno.h>
-#include <stdio.h>
-/*****	LTP Port	*****/
-#include "test.h"
-#define FAILED 0
-#define PASSED 1
+#include "tst_test.h"
 
-int local_flag = PASSED;
-char *TCID = "mmapstress08";
-FILE *temp;
-int TST_TOTAL = 1;
+#define NPTEPG		1024
+#define GRAN_NUMBER	(1 << 8)
 
-#if defined(__i386__) || defined(__x86_64__)
-int anyfail();
-void ok_exit();
-/*****  **      **      *****/
+static long pagesize;
 
-#define NPTEPG		(1024)
-/*#define GRAN_NUMBER	(1<<2)*/
+static void setup(void)
+{
+	pagesize = getpagesize();
+}
 
-#define GRAN_NUMBER	(1<<8)
-	/* == 256 @ 4MB per mmap(2), we span a total of 1 GB */
-
-extern time_t time(time_t *);
-extern char *ctime(const time_t *);
-extern long sysconf(int name);
-
-#define ERROR(M) (void)fprintf(stderr, "%s: errno = %d: " M "\n", argv[0], \
-			errno)
-
- /*ARGSUSED*/ int main(int argc, char *argv[])
+static void run(void)
 {
 	caddr_t mmapaddr, munmap_begin;
-	long pagesize = sysconf(_SC_PAGE_SIZE);
 	int i;
-	time_t t;
 
-	(void)time(&t);
-	//(void)printf("%s: Started %s", argv[0], ctime(&t));
-	if (sbrk(pagesize - ((u_long) sbrk(0) % (u_long) pagesize)) ==
-	    (char *)-1) {
-		ERROR("couldn't round up brk to a page boundary");
-		local_flag = FAILED;
-		anyfail();
+	if (sbrk(pagesize - ((unsigned long)sbrk(0) % (unsigned long)pagesize))
+	    == (void *)-1) {
+		tst_brk(TBROK | TERRNO, "sbrk() failed to round up brk");
 	}
-	/* The brk is now at the begining of a page. */
 
-	if ((munmap_begin = mmapaddr = (caddr_t) sbrk(0)) == (caddr_t) - 1) {
-		ERROR("couldn't find top of brk");
-		local_flag = FAILED;
-		anyfail();
-	}
-	/* burn level 2 ptes by spacing mmaps 4Meg apart */
-	/* This should switch to large anonymous swap space granularity */
+	munmap_begin = mmapaddr = (caddr_t)sbrk(0);
+	if (mmapaddr == (caddr_t)-1)
+		tst_brk(TBROK | TERRNO, "sbrk(0) failed");
+
 	for (i = 0; i < GRAN_NUMBER; i++) {
 		if (mmap(mmapaddr, pagesize, PROT_READ | PROT_WRITE,
-			 MAP_ANONYMOUS | MAP_PRIVATE, 0, 0) == (caddr_t) - 1) {
-			ERROR("mmap failed");
-			local_flag = FAILED;
-			anyfail();
-		}
+				MAP_ANONYMOUS | MAP_PRIVATE, -1, 0) == MAP_FAILED)
+			tst_brk(TBROK | TERRNO, "mmap() at iteration %d", i);
+
 		mmapaddr += NPTEPG * pagesize;
 	}
-	/* Free bizillion level2 ptes to switch to small granularity */
-	if (munmap(munmap_begin, (size_t) (mmapaddr - munmap_begin))) {
-		ERROR("munmap failed");
-		local_flag = FAILED;
-		anyfail();
-	}
-	(void)time(&t);
-	//(void)printf("%s: Finished %s", argv[0], ctime(&t));
-	ok_exit();
-	tst_exit();
+
+	SAFE_MUNMAP(munmap_begin, (size_t)(mmapaddr - munmap_begin));
+
+	tst_res(TPASS, "Large-scale anonymous mmap/munmap succeeded");
 }
 
-/*****  LTP Port        *****/
-void ok_exit(void)
-{
-	tst_resm(TPASS, "Test passed");
-	tst_exit();
-}
-
-int anyfail(void)
-{
-	tst_brkm(TFAIL, NULL, "Test failed");
-}
-
-#else /* defined(__i386__) || defined(__x86_64__) */
-int main(void)
-{
-	tst_brkm(TCONF, NULL, "Test is only applicable for IA-32 and x86-64.");
-}
-#endif
-/*****  **      **      *****/
+static struct tst_test test = {
+	.test_all = run,
+	.setup = setup,
+	.supported_archs = (const char *const []) {
+		"x86",
+		"x86_64",
+		NULL
+	},
+};
