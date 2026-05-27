@@ -1,145 +1,97 @@
-/******************************************************************************
- *
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
  * Copyright (c) International Business Machines  Corp., 2006
  *  Author: Yi Yang <yyangcdl@cn.ibm.com>
  * Copyright (c) Cyril Hrubis 2014 <chrubis@suse.cz>
- *
- * This program is free software;  you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY;  without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- * the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program;  if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-/*
- * DESCRIPTION
- *	This test case will verify basic function of mkdirat
- *	added by kernel 2.6.16 or up.
+/*\
+ * Verify basic function of :manpage:`mkdirat(2)`.
+ *
+ * - mkdirat() with a valid dirfd and relative pathname succeeds
+ * - mkdirat() with a valid dirfd and absolute pathname succeeds
+ * - mkdirat() with AT_FDCWD and relative pathname succeeds
+ * - mkdirat() with a file descriptor fails with ENOTDIR
+ * - mkdirat() with an invalid file descriptor fails with EBADF
  */
 
 #define _GNU_SOURCE
-
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <string.h>
-#include <signal.h>
-#include "test.h"
-#include "tso_safe_macros.h"
+#include "tst_test.h"
 
-static void setup(void);
-static void cleanup(void);
+#define TEST_DIR "test_dir"
+#define TEST_FILE "test_file"
+#define REL_DIR "mkdirat_dir"
+#define ABS_DIR "mkdirat_absdir"
 
-static char relpath[256];
-static char abspath[1024];
-static int dir_fd, fd;
+static int dir_fd = -1;
+static int fd = -1;
 static int fd_invalid = 100;
 static int fd_atcwd = AT_FDCWD;
+static char abspath[PATH_MAX];
 
-static struct test_case {
+static struct tcase {
 	int *dir_fd;
 	const char *name;
-	int exp_ret;
 	int exp_errno;
-} test_cases[] = {
-	{&dir_fd, relpath, 0, 0},
-	{&dir_fd, abspath, 0, 0},
-	{&fd_atcwd, relpath, 0, 0},
-	{&fd, relpath, -1, ENOTDIR},
-	{&fd_invalid, relpath, -1, EBADF},
+} tcases[] = {
+	{&dir_fd, REL_DIR, 0},
+	{&dir_fd, abspath, 0},
+	{&fd_atcwd, REL_DIR "_atcwd", 0},
+	{&fd, REL_DIR, ENOTDIR},
+	{&fd_invalid, REL_DIR, EBADF},
 };
 
-char *TCID = "mkdirat01";
-int TST_TOTAL = ARRAY_SIZE(test_cases);
-
-static void verify_mkdirat(struct test_case *test)
+static void verify_mkdirat(unsigned int i)
 {
-	TEST(mkdirat(*test->dir_fd, test->name, 0600));
+	struct tcase *tc = &tcases[i];
+	char rmpath[PATH_MAX];
 
-	if (TEST_RETURN != test->exp_ret) {
-		tst_resm(TFAIL | TTERRNO,
-		         "mkdirat() returned %ld, expected %d",
-			 TEST_RETURN, test->exp_ret);
-		return;
+	if (tc->exp_errno == 0) {
+		TST_EXP_PASS(mkdirat(*tc->dir_fd, tc->name, 0600));
+		if (!TST_PASS)
+			return;
+
+		if (*tc->dir_fd == AT_FDCWD || tc->name[0] == '/') {
+			SAFE_RMDIR(tc->name);
+		} else {
+			snprintf(rmpath, sizeof(rmpath), "%s/%s",
+				 TEST_DIR, tc->name);
+			SAFE_RMDIR(rmpath);
+		}
+	} else {
+		TST_EXP_FAIL(mkdirat(*tc->dir_fd, tc->name, 0600),
+				tc->exp_errno);
 	}
-
-	if (TEST_ERRNO != test->exp_errno) {
-		tst_resm(TFAIL | TTERRNO,
-		         "mkdirat() returned wrong errno, expected %d",
-			 test->exp_errno);
-		return;
-	}
-
-	tst_resm(TPASS | TTERRNO, "mkdirat() returned %ld", TEST_RETURN);
-}
-
-static void setup_iteration(int i)
-{
-	static char testdir[256];
-	char *tmpdir = tst_get_tmpdir();
-
-	/* Initialize test dir and file names */
-	sprintf(testdir, "mkdirattestdir%d_%d", getpid(), i);
-	sprintf(relpath, "mkdiratrelpath%d_%d", getpid(), i);
-	sprintf(abspath, "%s/mkdiratrelpath%d_%d_2", tmpdir, getpid(), i);
-
-	free(tmpdir);
-
-	SAFE_MKDIR(cleanup, testdir, 0700);
-	dir_fd = SAFE_OPEN(cleanup, testdir, O_DIRECTORY);
-}
-
-static void cleanup_iteration(void)
-{
-	SAFE_CLOSE(cleanup, dir_fd);
-}
-
-int main(int ac, char **av)
-{
-	int lc;
-	int i;
-
-	tst_parse_opts(ac, av, NULL, NULL);
-
-	setup();
-
-	for (lc = 0; TEST_LOOPING(lc); lc++) {
-		tst_count = 0;
-
-		setup_iteration(lc);
-
-		for (i = 0; i < TST_TOTAL; i++)
-			verify_mkdirat(test_cases + i);
-
-		cleanup_iteration();
-	}
-
-	cleanup();
-	tst_exit();
 }
 
 static void setup(void)
 {
-	TEST_PAUSE;
-	tst_tmpdir();
+	char tmpbuf[PATH_MAX];
 
-	fd = SAFE_OPEN(cleanup, "mkdirattestfile", O_CREAT | O_RDWR, 0600);
+	SAFE_MKDIR(TEST_DIR, 0700);
+	dir_fd = SAFE_OPEN(TEST_DIR, O_DIRECTORY);
+	fd = SAFE_OPEN(TEST_FILE, O_CREAT | O_RDWR, 0600);
+
+	if (!realpath(TEST_DIR, tmpbuf))
+		tst_brk(TBROK | TERRNO, "realpath() failed");
+
+	snprintf(abspath, sizeof(abspath), "%s/%s", tmpbuf, ABS_DIR);
 }
 
 static void cleanup(void)
 {
-	if (fd > 0)
-		close(fd);
-
-	tst_rmdir();
+	if (fd != -1)
+		SAFE_CLOSE(fd);
+	if (dir_fd != -1)
+		SAFE_CLOSE(dir_fd);
 }
+
+static struct tst_test test = {
+	.setup = setup,
+	.cleanup = cleanup,
+	.test = verify_mkdirat,
+	.tcnt = ARRAY_SIZE(tcases),
+	.needs_tmpdir = 1,
+};
