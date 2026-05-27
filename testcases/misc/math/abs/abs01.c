@@ -1,133 +1,51 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- *
- *   Copyright (c) International Business Machines  Corp., 2002
- *
- *   This program is free software;  you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY;  without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with this program;  if not, write to the Free Software
- *   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * Copyright (c) International Business Machines Corp., 2002
+ * 01/02/2003	Port to LTP	avenkat@us.ibm.com
+ * 06/30/2001	Port to Linux	nsharoff@us.ibm.com
  */
 
-/* 01/02/2003   Port to LTP	avenkat@us.ibm.com */
-/* 06/30/2001	Port to Linux	nsharoff@us.ibm.com */
-
-/*
- * NAME
- *	abs -- absolute integer value
- *
- * CALLS
- *	abs(3)
- *
- * ALGORITHM
- *	Check with variables.  Also most neg value as listed
- *	on man page.
- *
- * RESTRICTIONS
- *	considered a long time - estimate this one
+/*\
+ * Verify that :manpage:`abs(3)` and llabs() correctly compute the absolute
+ * value of integers, including zero, the minimum integer value, and
+ * values derived from bitwise complement operations.
  */
-#define _GNU_SOURCE 1
 
-#include <stdio.h>		/* needed by testhead.h         */
 #include <stdlib.h>
-#include <unistd.h>
-#include <ctype.h>
-#include <math.h>
-#include <errno.h>
 #include <limits.h>
 
-/*****	LTP Port	*****/
+#include "tst_test.h"
 
-#include "test.h"
-#define FAILED 0
-#define PASSED 1
-
-char *TCID = "abs01";
-int local_flag = PASSED;
-int block_number;
-FILE *temp;
-int TST_TOTAL = 1;
-
-static void setup(void);
-static int blenter(void);
-static int blexit(void);
-
-/********************************/
-
-/*--------------------------------------------------------------*/
-int main(void)
+static void run(void)
 {
-	register long long i;
-	register int j, k, l, m;
-
-	setup();		/* temp file is now open        */
-/*--------------------------------------------------------------*/
-	blenter();
+	long long i;
+	int j, k, l, m;
 
 	i = llabs(INT_MIN) + (long long)INT_MIN;
-
-	if (i != 0) {
-		fprintf(temp, "abs of minimum integer failed.");
-		local_flag = FAILED;
-	}
-
-	blexit();
-/*--------------------------------------------------------------*/
-	blenter();
+	if (i != 0)
+		tst_res(TFAIL, "llabs(INT_MIN) + INT_MIN != 0");
+	else
+		tst_res(TPASS, "abs of minimum integer correct");
 
 	i = llabs(0);
-	if (i != 0) {
-		fprintf(temp, "abs(0) failed, returned %lld\n", i);
-		local_flag = FAILED;
-	}
-
-	blexit();
-/*--------------------------------------------------------------*/
-	blenter();
+	if (i != 0)
+		tst_res(TFAIL, "llabs(0) returned %lld", i);
+	else
+		tst_res(TPASS, "abs(0) returned 0");
 
 	for (m = 1; m >= 0; m <<= 1) {
 		j = ~m;
 		k = j + 1;
 		l = abs(k);
-		if (l != m)
-			local_flag = FAILED;
+
+		if (l != m) {
+			tst_res(TFAIL, "abs(%d) = %d, expected %d", k, l, m);
+			return;
+		}
 	}
-
-	blexit();
-/*--------------------------------------------------------------*/
-/* Clean up any files created by test before call to anyfail.	*/
-
-	tst_exit();
+	tst_res(TPASS, "abs of bitwise complement values correct");
 }
 
-/*--------------------------------------------------------------*/
-
-/*****  LTP Port	*****/
-static void setup(void)
-{
-	temp = stderr;
-}
-
-static int blenter(void)
-{
-	local_flag = PASSED;
-	return (0);
-}
-
-static int blexit(void)
-{
-	(local_flag == PASSED) ? tst_resm(TPASS,
-					  "Test passed") : tst_resm(TFAIL,
-								    "Test failed");
-	return (0);
-}
-
-/******			*****/
+static struct tst_test test = {
+	.test_all = run,
+};
