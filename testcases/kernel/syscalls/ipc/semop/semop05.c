@@ -1,157 +1,95 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- *
- *   Copyright (c) International Business Machines  Corp., 2002
- *
- *   This program is free software;  you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY;  without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with this program;  if not, write to the Free Software
- *   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * Copyright (c) International Business Machines Corp., 2002
+ * Author: Dave Olien <oliend@us.ibm.com>
+ * Ported to LTP: Paul Larson <plars@linuxtestproject.org>
  */
 
-/*
- *  FILE        : sem02.c
+/*\
+ * Verify that SEM_UNDO on :manpage:`semop(2)` is only undone when the
+ * last pthread exits, not when an individual thread exits.
  *
- *  DESCRIPTION : The application creates several threads using pthread_create().
- *  One thread performs a semop() with the SEM_UNDO flag set. The change in
- *  sempaphore value performed by that semop should be "undone" only when the
- *  last pthread exits.
+ * [Algorithm]
  *
- *  EXPECTED OUTPUT:
- *  Waiter, pid = <pid#>
- *  Poster, pid = <pid#>, posting
- *  Poster posted
- *  Poster exiting
- *  Waiter waiting, pid = <pid#>
- *  Waiter done waiting
- *
- *  HISTORY:
- *    written by Dave Olien (oliend@us.ibm.com)
- *    03/06/2002 Robbie Williamson (robbiew@us.ibm.com)
- *      -ported
- *    07/04/2003 Paul Larson (plars@linuxtestproject.org)
- *      -ported to LTP
- *
+ * - Create a semaphore and set its value to 1.
+ * - A poster thread increments the semaphore with SEM_UNDO then exits.
+ * - A waiter thread sleeps briefly, then decrements the semaphore.
+ * - If the undo happened at thread exit, the waiter would block forever.
+ * - The main thread joins both threads and checks the result.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
 #include <pthread.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
+
+#include "tst_test.h"
+#include "tst_safe_pthread.h"
 #include "lapi/sem.h"
-#include "test.h"
+#include "tst_safe_sysv_ipc.h"
 
-#define KEY IPC_PRIVATE
+static int sem_id = -1;
 
-#define NUMTHREADS 2
+static struct sembuf sem_wait = {0, -1, SEM_UNDO};
+static struct sembuf sem_post = {0, 1, SEM_UNDO};
+static volatile int waiter_done;
 
-void *retval[NUMTHREADS];
-void *waiter(void *);
-void *poster(void *);
-void cleanup(void);
-
-char *TCID = "sem02";
-int TST_TOTAL = 1;
-
-struct sembuf Psembuf = { 0, -1, SEM_UNDO };
-struct sembuf Vsembuf = { 0, 1, SEM_UNDO };
-
-int sem_id;
-int err_ret;			/* This is used to determine PASS/FAIL status */
-int main(int argc, char **argv)
+static void *waiter(void *arg LTP_ATTRIBUTE_UNUSED)
 {
-	int i, rc;
+	tst_res(TINFO, "%s waiting", __func__);
+	usleep(500000);
+
+	if (semop(sem_id, &sem_wait, 1) == -1)
+		tst_brk(TBROK | TERRNO, "semop P failed in %s", __func__);
+
+	tst_res(TINFO, "%s done waiting", __func__);
+	waiter_done = 1;
+	return NULL;
+}
+
+static void *poster(void *arg LTP_ATTRIBUTE_UNUSED)
+{
+	tst_res(TINFO, "%s posting", __func__);
+
+	if (semop(sem_id, &sem_post, 1) == -1)
+		tst_brk(TBROK | TERRNO, "semop V failed in %s", __func__);
+
+	tst_res(TINFO, "%s done, exiting thread", __func__);
+	return NULL;
+}
+
+static void run(void)
+{
+	pthread_t th_waiter, th_poster;
 	union semun semunion;
 
-	pthread_t pt[NUMTHREADS];
-	pthread_attr_t attr;
-
-	tst_parse_opts(argc, argv, NULL, NULL);
-	/* Create the semaphore set */
-	sem_id = semget(KEY, 1, 0666 | IPC_CREAT);
-	if (sem_id < 0) {
-		printf("semget failed, errno = %d\n", errno);
-		exit(1);
-	}
-	/* initialize data  structure associated to the semaphore */
 	semunion.val = 1;
-	semctl(sem_id, 0, SETVAL, semunion);
+	SAFE_SEMCTL(sem_id, 0, SETVAL, semunion);
 
-	/* setup the attributes of the thread        */
-	/* set the scope to be system to make sure the threads compete on a  */
-	/* global scale for cpu   */
-	pthread_attr_init(&attr);
-	pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM);
+	waiter_done = 0;
 
-	err_ret = 1;		/* Set initial error value to 1 */
-	/* Create the threads */
-	for (i = 0; i < NUMTHREADS; i++) {
-		if (i == 0)
-			rc = pthread_create(&pt[i], &attr, waiter, retval[i]);
-		else
-			rc = pthread_create(&pt[i], &attr, poster, retval[i]);
-	}
+	SAFE_PTHREAD_CREATE(&th_waiter, NULL, waiter, NULL);
+	SAFE_PTHREAD_CREATE(&th_poster, NULL, poster, NULL);
 
-	/* Sleep long enough to see that the other threads do what they are supposed to do */
-	sleep(20);
-	semunion.val = 1;
-	semctl(sem_id, 0, IPC_RMID, semunion);
-	if (err_ret == 1)
-		tst_resm(TFAIL, "failed");
+	SAFE_PTHREAD_JOIN(th_poster, NULL);
+	SAFE_PTHREAD_JOIN(th_waiter, NULL);
+
+	if (waiter_done)
+		tst_res(TPASS, "SEM_UNDO not triggered on thread exit");
 	else
-		tst_resm(TPASS, "passed");
-	cleanup();
-
-	tst_exit();
+		tst_res(TFAIL, "SEM_UNDO triggered on thread exit");
 }
 
-/* This thread sleeps 10 seconds then waits on the semaphore.  As long
-   as someone has posted on the semaphore, and no undo has taken
-   place, the semop should complete and we'll print "Waiter done
-   waiting." */
-void *waiter(void *foo)
+static void setup(void)
 {
-	int pid;
-	pid = getpid();
-
-	tst_resm(TINFO, "Waiter, pid = %d", pid);
-	sleep(10);
-
-	tst_resm(TINFO, "Waiter waiting, pid = %d", pid);
-	semop(sem_id, &Psembuf, 1);
-	tst_resm(TINFO, "Waiter done waiting");
-	err_ret = 0;		/* If the message above is displayed, the test is a PASS */
-	pthread_exit(0);
+	sem_id = SAFE_SEMGET(IPC_PRIVATE, 1, 0666 | IPC_CREAT);
 }
 
-/* This thread immediately posts on the semaphore and then immediately
-   exits.  If the *thread* exits, the undo should not happen, and the
-   waiter thread which will start waiting on it in 10 seconds, should
-   still get it.   */
-void *poster(void *foo)
+static void cleanup(void)
 {
-	int pid;
-
-	pid = getpid();
-	tst_resm(TINFO, "Poster, pid = %d, posting", pid);
-	semop(sem_id, &Vsembuf, 1);
-	tst_resm(TINFO, "Poster posted");
-	tst_resm(TINFO, "Poster exiting");
-
-	pthread_exit(0);
+	if (sem_id != -1)
+		SAFE_SEMCTL(sem_id, 0, IPC_RMID);
 }
 
-void cleanup(void)
-{
-}
+static struct tst_test test = {
+	.test_all = run,
+	.setup = setup,
+	.cleanup = cleanup,
+};
