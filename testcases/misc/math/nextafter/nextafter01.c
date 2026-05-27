@@ -1,127 +1,54 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- *
- *   Copyright (c) International Business Machines  Corp., 2002
- *
- *   This program is free software;  you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY;  without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with this program;  if not, write to the Free Software
- *   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * Copyright (c) International Business Machines Corp., 2002
+ * Copyright (c) Linux Test Project, 2002-2026
+ *   Ported to LTP: 01/02/2003 avenkat@us.ibm.com
+ *   Ported to Linux: 06/30/2001 nsharoff@us.ibm.com
  */
 
-/* 01/02/2003	Port to LTP	avenkat@us.ibm.com */
-/* 06/30/2001	Port to Linux	nsharoff@us.ibm.com */
-
-/*
- * NAME
- *      scalb
+/*\
+ * Verify basic functionality of :manpage:`nextafter(3)`.
  *
- * CALLS
- *      nextafter(3C)
- *
- * ALGORITHM
- *	Check results from the above functions against expected values.
- *
- * RESTRICTIONS
- * 	Checks for basic functionality, nothing fancy
+ * - nextafter(1.0, 1.1) returns the next representable value after 1.0
+ *   toward 1.1, and the midpoint between that value and 1.0 rounds
+ *   correctly.
+ * - nextafter(1.0, 0.9) returns the next representable value after 1.0
+ *   toward 0.9, and the previously computed midpoint is consistent.
+ * - nextafter(1.0, 1.0) returns exactly 1.0.
  */
 
-#include <errno.h>
 #include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include "test.h"
+#include "tst_test.h"
 
-#define	FAILED 0
-#define	PASSED 1
-
-char *TCID = "nextafter01";
-
-int local_flag = PASSED;
-int block_number;
-FILE *temp;
-int TST_TOTAL = 1;
-
-void setup();
-void blenter();
-void blexit();
-
-/*--------------------------------------------------------------*/
-int main()
+static void run(void)
 {
-	double answer;
-	double check;		/* tmp variable */
-
-	setup();		/* temp file is now open */
-/*--------------------------------------------------------------*/
-	blenter();
+	double answer, check;
 
 	answer = nextafter(1.0, 1.1);
 	check = (answer + 1.0) / 2;
-	if ((check != answer) && ((float)check != 1.0)) {
-		fprintf(temp, "nextafter returned %e, expected answer or 1.0\n",
-			answer);
-		local_flag = FAILED;
-	}
 
-	blexit();
-/*--------------------------------------------------------------*/
-	blenter();
+	if (check != answer && (float)check != 1.0)
+		tst_res(TFAIL, "nextafter(1.0, 1.1) midpoint check failed");
+	else
+		tst_res(TPASS, "nextafter(1.0, 1.1) returned %e", answer);
 
 	answer = nextafter(1.0, 0.9);
-	if ((check != answer) && (check != 1.0)) {
-		fprintf(temp, "nextafter returned %e, expected answer or 1.0\n",
-			answer);
-		local_flag = FAILED;
-	}
 
-	blexit();
-/*--------------------------------------------------------------*/
-	blenter();
+	if (check != answer && check != 1.0)
+		tst_res(TFAIL, "nextafter(1.0, 0.9) midpoint check failed");
+	else
+		tst_res(TPASS, "nextafter(1.0, 0.9) returned %e", answer);
 
 	answer = nextafter(1.0, 1.0);
+
 	if (answer != 1.0) {
-		fprintf(temp, "nextafter 3 returned %e, expected 1.0\n",
+		tst_res(TFAIL, "nextafter(1.0, 1.0) returned %e, expected 1.0",
 			answer);
-		local_flag = FAILED;
+	} else {
+		tst_res(TPASS, "nextafter(1.0, 1.0) returned 1.0");
 	}
-
-	blexit();
-/*--------------------------------------------------------------*/
-
-	tst_exit();
 }
 
-/*--------------------------------------------------------------*/
-
-/*****	*****	LTP Port	*****/
-
-/* FUNCTIONS */
-
-void setup()
-{
-	temp = stderr;
-}
-
-void blenter()
-{
-	local_flag = PASSED;
-}
-
-void blexit()
-{
-	if (local_flag == PASSED)
-		tst_resm(TPASS, "Test passed");
-	else
-		tst_resm(TFAIL, "Test failed");
-}
-
-/*****	*****		*****/
+static struct tst_test test = {
+	.test_all = run,
+};
