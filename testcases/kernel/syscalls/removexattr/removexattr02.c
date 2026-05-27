@@ -1,128 +1,68 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
-* Copyright (c) 2016 Fujitsu Ltd.
-* Author: Xiao Yang <yangx.jy@cn.fujitsu.com>
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of version 2 of the GNU General Public License as
-* published by the Free Software Foundation.
-*
-* This program is distributed in the hope that it would be useful, but
-* WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-*
-* You should have received a copy of the GNU General Public License
-* alone with this program.
-*/
+ * Copyright (c) 2016 Fujitsu Ltd.
+ * Author: Xiao Yang <yangx.jy@cn.fujitsu.com>
+ */
 
-/*
-* Test Name: removexattr02
-*
-* Description:
-* 1) removexattr(2) fails if the named attribute does not exist.
-* 2) removexattr(2) fails if path is an empty string.
-* 3) removexattr(2) fails when attempted to read from a invalid address.
-*
-* Expected Result:
-* 1) removexattr(2) should return -1 and set errno to ENODATA.
-* 2) removcxattr(2) should return -1 and set errno to ENOENT.
-* 3) removexattr(2) should return -1 and set errno to EFAULT.
-*/
+/*\
+ * Verify that :manpage:`removexattr(2)` fails with the correct errno for
+ * various error conditions.
+ *
+ * - ENODATA when the named attribute does not exist
+ * - ENOENT when path is an empty string
+ * - EFAULT when path points to an invalid address
+ */
 
 #include "config.h"
-#include <errno.h>
 #include <sys/types.h>
 
 #ifdef HAVE_SYS_XATTR_H
-# include <sys/xattr.h>
+#include <sys/xattr.h>
 #endif
 
-#include "test.h"
-#include "tso_safe_macros.h"
-
-char *TCID = "removexattr02";
+#include "tst_test.h"
 
 #ifdef HAVE_SYS_XATTR_H
 
-static struct test_case {
+static struct tcase {
 	const char *path;
-	char *name;
+	const char *name;
 	int exp_err;
-} tc[] = {
-	/* test1 */
+} tcases[] = {
 	{"testfile", "user.test", ENODATA},
-	/* test2 */
 	{"", "user.test", ENOENT},
-	/* test3 */
-	{(char *)-1, "user.test", EFAULT}
+	{(char *)-1, "user.test", EFAULT},
 };
 
-static void verify_removexattr(struct test_case *tc);
-static void setup(void);
-static void cleanup(void);
-
-int TST_TOTAL = ARRAY_SIZE(tc);
-
-int main(int ac, char **av)
+static void verify_removexattr(unsigned int n)
 {
-	int lc;
-	int i;
+	struct tcase *tc = &tcases[n];
 
-	tst_parse_opts(ac, av, NULL, NULL);
-
-	setup();
-
-	for (lc = 0; TEST_LOOPING(lc); lc++) {
-		tst_count = 0;
-		for (i = 0; i < TST_TOTAL; i++)
-			verify_removexattr(&tc[i]);
-	}
-
-	cleanup();
-	tst_exit();
-}
-
-static void verify_removexattr(struct test_case *tc)
-{
-
-	TEST(removexattr(tc->path, tc->name));
-	if (TEST_RETURN == -1 && TEST_ERRNO == ENOTSUP) {
-		tst_brkm(TCONF, cleanup, "No xattr support in fs or "
-			 "mount without user_xattr option");
-	}
-
-	if (TEST_RETURN != -1) {
-		tst_resm(TFAIL, "removexattr() succeeded unexpectedly");
-		return;
-	}
-
-	if (TEST_ERRNO != tc->exp_err) {
-		tst_resm(TFAIL | TTERRNO, "removexattr() failed unexpectedly,"
-			 " expected %s", tst_strerrno(tc->exp_err));
-	} else {
-		tst_resm(TPASS | TTERRNO,
-			 "removexattr() failed as expected");
-	}
+	TST_EXP_FAIL(removexattr(tc->path, tc->name), tc->exp_err,
+			"removexattr(%s, %s)",
+			tc->path == (char *)-1 ? "(invalid)" : tc->path,
+			tc->name);
 }
 
 static void setup(void)
 {
-	tst_sig(NOFORK, DEF_HANDLER, cleanup);
+	SAFE_TOUCH("testfile", 0644, NULL);
 
-	TEST_PAUSE;
+	TEST(setxattr("testfile", "user.test", "test", 4, XATTR_CREATE));
+	if (TST_RET == -1 && TST_ERR == ENOTSUP)
+		tst_brk(TCONF, "no xattr support in fs or mount without user_xattr option");
 
-	tst_tmpdir();
-
-	SAFE_TOUCH(cleanup, "testfile", 0644, NULL);
+	if (TST_RET == 0)
+		SAFE_REMOVEXATTR("testfile", "user.test");
 }
 
-static void cleanup(void)
-{
-	tst_rmdir();
-}
+static struct tst_test test = {
+	.setup = setup,
+	.test = verify_removexattr,
+	.tcnt = ARRAY_SIZE(tcases),
+	.needs_tmpdir = 1,
+};
 
-#else /* HAVE_SYS_XATTR_H */
-int main(int ac, char **av)
-{
-	tst_brkm(TCONF, NULL, "<sys/xattr.h> does not exist.");
-}
+#else
+TST_TEST_TCONF("<sys/xattr.h> does not exist");
 #endif
