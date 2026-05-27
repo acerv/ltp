@@ -1,41 +1,23 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (c) 2015 Cedric Hnyda <chnyda@suse.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it would be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write the Free Software Foundation,
- * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
- /* Description:
- *   Verify that:
- *   1) renameat2(2) returns -1 and sets errno to EEXIST because newpath
- *		already exists and the flag RENAME_NOREPLACE is used.
- *   2) renameat2(2) returns 0.
- *   3) renameat2(2) returns -1 and sets errno to ENOENT because the flag
- *		RENAME_EXCHANGE is used and newpath does not exist.
- *   4) renameat2(2) returns 0 because the flag RENAME_NOREPLACE is used,
- *		both olddirfd and newdirfd are valid and oldpath exists and
- *		newpath does not exist.
- *   5) renameat2(2) returns -1 and sets errno to EINVAL because
- *		RENAME_NOREPLACE and RENAME_EXCHANGE are used together
- *   6) renameat2(2) returns -1 and sets errno to EINVAL because
- *		RENAME_WHITEOUT and RENAME_EXCHANGE are used together
+/*\
+ * Verify that :manpage:`renameat2(2)` handles various flag combinations
+ * correctly:
+ *
+ * - RENAME_NOREPLACE fails with EEXIST when target exists
+ * - RENAME_EXCHANGE succeeds when both paths exist
+ * - RENAME_EXCHANGE fails with ENOENT when target is missing
+ * - RENAME_NOREPLACE succeeds when target does not exist
+ * - RENAME_NOREPLACE | RENAME_EXCHANGE fails with EINVAL
+ * - RENAME_WHITEOUT | RENAME_EXCHANGE fails with EINVAL
  */
 
 #define _GNU_SOURCE
 
-#include "test.h"
-#include "tso_safe_macros.h"
+#include "tst_test.h"
 #include "lapi/fcntl.h"
 #include "renameat2.h"
 
@@ -47,117 +29,78 @@
 #define TEST_FILE3 "test_file3"
 #define NON_EXIST "non_exist"
 
-char *TCID = "renameat201";
+static int olddirfd = -1;
+static int newdirfd = -1;
 
-static int olddirfd;
-static int newdirfd;
-static long fs_type;
-
-static struct test_case {
+static struct tcase {
 	int *olddirfd;
 	const char *oldpath;
 	int *newdirfd;
 	const char *newpath;
 	int flags;
 	int exp_errno;
-} test_cases[] = {
+} tcases[] = {
 	{&olddirfd, TEST_FILE, &newdirfd, TEST_FILE2, RENAME_NOREPLACE, EEXIST},
 	{&olddirfd, TEST_FILE, &newdirfd, TEST_FILE2, RENAME_EXCHANGE, 0},
 	{&olddirfd, TEST_FILE, &newdirfd, NON_EXIST, RENAME_EXCHANGE, ENOENT},
 	{&olddirfd, TEST_FILE, &newdirfd, TEST_FILE3, RENAME_NOREPLACE, 0},
-	{&olddirfd, TEST_FILE, &newdirfd, TEST_FILE2, RENAME_NOREPLACE
-				| RENAME_EXCHANGE, EINVAL},
-	{&olddirfd, TEST_FILE, &newdirfd, TEST_FILE2, RENAME_WHITEOUT
-				| RENAME_EXCHANGE, EINVAL}
+	{&olddirfd, TEST_FILE, &newdirfd, TEST_FILE2,
+		RENAME_NOREPLACE | RENAME_EXCHANGE, EINVAL},
+	{&olddirfd, TEST_FILE, &newdirfd, TEST_FILE2,
+		RENAME_WHITEOUT | RENAME_EXCHANGE, EINVAL},
 };
-
-int TST_TOTAL = ARRAY_SIZE(test_cases);
-
-static void setup(void);
-static void cleanup(void);
-static void renameat2_verify(const struct test_case *test);
-
-
-int main(int ac, char **av)
-{
-	int i;
-	int lc;
-
-	tst_parse_opts(ac, av, NULL, NULL);
-
-	setup();
-
-	for (lc = 0; lc < TEST_LOOPING(lc); lc++) {
-		tst_count = 0;
-
-		for (i = 0; i < TST_TOTAL; i++)
-			renameat2_verify(&test_cases[i]);
-	}
-
-	cleanup();
-	tst_exit();
-}
 
 static void setup(void)
 {
-	tst_tmpdir();
+	SAFE_MKDIR(TEST_DIR, 0700);
+	SAFE_MKDIR(TEST_DIR2, 0700);
 
-	fs_type = tst_fs_type(cleanup, ".");
+	olddirfd = SAFE_OPEN(TEST_DIR, O_DIRECTORY);
+	newdirfd = SAFE_OPEN(TEST_DIR2, O_DIRECTORY);
+}
 
-	SAFE_MKDIR(cleanup, TEST_DIR, 0700);
-	SAFE_MKDIR(cleanup, TEST_DIR2, 0700);
+static void run(unsigned int i)
+{
+	struct tcase *tc = &tcases[i];
 
-	SAFE_TOUCH(cleanup, TEST_DIR TEST_FILE, 0600, NULL);
-	SAFE_TOUCH(cleanup, TEST_DIR2 TEST_FILE2, 0600, NULL);
-	SAFE_TOUCH(cleanup, TEST_DIR TEST_FILE3, 0600, NULL);
+	SAFE_TOUCH(TEST_DIR TEST_FILE, 0600, NULL);
+	SAFE_TOUCH(TEST_DIR2 TEST_FILE2, 0600, NULL);
+	SAFE_TOUCH(TEST_DIR TEST_FILE3, 0600, NULL);
 
-	olddirfd = SAFE_OPEN(cleanup, TEST_DIR, O_DIRECTORY);
-	newdirfd = SAFE_OPEN(cleanup, TEST_DIR2, O_DIRECTORY);
+	if (tc->exp_errno) {
+		TST_EXP_FAIL(renameat2(*tc->olddirfd, tc->oldpath,
+				*tc->newdirfd, tc->newpath, tc->flags),
+				tc->exp_errno);
+	} else {
+		TST_EXP_PASS(renameat2(*tc->olddirfd, tc->oldpath,
+				*tc->newdirfd, tc->newpath, tc->flags));
+	}
+
+	/* Reset files for next test case */
+	unlink(TEST_DIR TEST_FILE);
+	unlink(TEST_DIR2 TEST_FILE2);
+	unlink(TEST_DIR TEST_FILE3);
+	unlink(TEST_DIR2 TEST_FILE3);
+	unlink(TEST_DIR2 TEST_FILE);
 }
 
 static void cleanup(void)
 {
-	if (olddirfd > 0 && close(olddirfd) < 0)
-		tst_resm(TWARN | TERRNO, "close olddirfd failed");
+	if (olddirfd != -1)
+		SAFE_CLOSE(olddirfd);
 
-	if (newdirfd > 0 && close(newdirfd) < 0)
-		tst_resm(TWARN | TERRNO, "close newdirfd failed");
-
-	tst_rmdir();
-
+	if (newdirfd != -1)
+		SAFE_CLOSE(newdirfd);
 }
 
-static void renameat2_verify(const struct test_case *test)
-{
-	TEST(renameat2(*(test->olddirfd), test->oldpath,
-			*(test->newdirfd), test->newpath, test->flags));
-
-	if ((test->flags & RENAME_EXCHANGE) && EINVAL == TEST_ERRNO
-		&& fs_type == TST_BTRFS_MAGIC) {
-		tst_resm(TCONF,
-			"RENAME_EXCHANGE flag is not implemeted on %s",
-			tst_fs_type_name(fs_type));
-		return;
-	}
-
-	if (test->exp_errno && TEST_RETURN != -1) {
-		tst_resm(TFAIL, "renameat2() succeeded unexpectedly");
-		return;
-	}
-
-	if (test->exp_errno == 0 && TEST_RETURN != 0) {
-		tst_resm(TFAIL | TTERRNO, "renameat2() failed unexpectedly");
-		return;
-	}
-
-	if (test->exp_errno == TEST_ERRNO) {
-		tst_resm(TPASS | TTERRNO,
-		"renameat2() returned the expected value");
-		return;
-	}
-
-	tst_resm(TFAIL | TTERRNO,
-		"renameat2() got unexpected return value: expected: %d - %s",
-			test->exp_errno, tst_strerrno(test->exp_errno));
-
-}
+static struct tst_test test = {
+	.test = run,
+	.tcnt = ARRAY_SIZE(tcases),
+	.setup = setup,
+	.cleanup = cleanup,
+	.needs_tmpdir = 1,
+	.skip_filesystems = (const char *const[]) {
+		"btrfs",
+		NULL,
+	},
+};
