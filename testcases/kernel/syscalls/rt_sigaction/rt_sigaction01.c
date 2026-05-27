@@ -1,79 +1,44 @@
-/******************************************************************************/
-/* Copyright (c) Crackerjack Project., 2007                                   */
-/*                                                                            */
-/* This program is free software;  you can redistribute it and/or modify      */
-/* it under the terms of the GNU General Public License as published by       */
-/* the Free Software Foundation; either version 2 of the License, or          */
-/* (at your option) any later version.                                        */
-/*                                                                            */
-/* This program is distributed in the hope that it will be useful,            */
-/* but WITHOUT ANY WARRANTY;  without even the implied warranty of            */
-/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See                  */
-/* the GNU General Public License for more details.                           */
-/*                                                                            */
-/* You should have received a copy of the GNU General Public License          */
-/* along with this program;  if not, write to the Free Software Foundation,   */
-/* Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA           */
-/*                                                                            */
-/* History:     Porting from Crackerjack to LTP is done by                    */
-/*              Manas Kumar Nayak maknayak@in.ibm.com>                        */
-/******************************************************************************/
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Copyright (c) Crackerjack Project, 2007
+ * Copyright (c) Linux Test Project, 2007-2026
+ * Ported from Crackerjack to LTP by Manas Kumar Nayak <maknayak@in.ibm.com>
+ */
 
-/******************************************************************************/
-/* Description: This tests the rt_sigaction() syscall                         */
-/*		rt_sigaction alters an action taken by a process on receipt   */
-/* 		of a particular signal. The action is specified by the        */
-/*		sigaction structure. The previous action on the signal is     */
-/*		saved in oact.sigsetsize should indicate the size of a        */
-/*		sigset_t type.                       			      */
-/******************************************************************************/
+/*\
+ * Verify that :manpage:`rt_sigaction(2)` succeeds to set signal handlers
+ * for all real-time signals (SIGRTMIN to SIGRTMAX) with various sa_flags
+ * combinations, and that the installed handler is invoked when the signal
+ * is raised.
+ */
 
-#define _GNU_SOURCE
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
 #include <signal.h>
-#include <errno.h>
-#include <sys/syscall.h>
-#include <string.h>
 
-#include "test.h"
+#include "tst_test.h"
 #include "lapi/syscalls.h"
 #include "lapi/rt_sigaction.h"
 
-char *TCID = "rt_sigaction01";
-static int testno;
-int TST_TOTAL = 1;
+static struct tcase {
+	int flags;
+	const char *flags_str;
+} tcases[] = {
+	{SA_RESETHAND | SA_SIGINFO, "SA_RESETHAND|SA_SIGINFO"},
+	{SA_RESETHAND, "SA_RESETHAND"},
+	{SA_NODEFER, "SA_NODEFER"},
+};
 
-static void cleanup(void)
+static volatile int handler_called;
+
+static void handler(int sig LTP_ATTRIBUTE_UNUSED)
 {
-	tst_rmdir();
+	handler_called = 1;
 }
 
-static void setup(void)
-{
-	TEST_PAUSE;
-	tst_tmpdir();
-}
-
-static int test_flags[] =
-    { SA_RESETHAND | SA_SIGINFO, SA_RESETHAND, SA_RESETHAND | SA_SIGINFO,
-SA_RESETHAND | SA_SIGINFO, SA_NOMASK };
-char *test_flags_list[] =
-    { "SA_RESETHAND|SA_SIGINFO", "SA_RESETHAND", "SA_RESETHAND|SA_SIGINFO",
-"SA_RESETHAND|SA_SIGINFO", "SA_NOMASK" };
-
-static void handler(int sig)
-{
-	tst_resm(TINFO, "Signal Handler Called with signal number %d", sig);
-	return;
-}
-
-static int set_handler(int sig, int sig_to_mask, int mask_flags)
+static int set_handler(int sig, int mask_flags)
 {
 	struct sigaction sa, oldaction;
 
-	sa.sa_handler = (void *)handler;
+	sa.sa_handler = handler;
 	sa.sa_flags = mask_flags;
 	sigemptyset(&sa.sa_mask);
 	sigaddset(&sa.sa_mask, sig);
@@ -81,53 +46,30 @@ static int set_handler(int sig, int sig_to_mask, int mask_flags)
 	return ltp_rt_sigaction(sig, &sa, &oldaction, SIGSETSIZE);
 }
 
-int main(int ac, char **av)
+static void run(unsigned int i)
 {
-	unsigned int flag;
-	int signal;
-	int lc;
+	struct tcase *tc = &tcases[i];
+	int sig;
 
-	tst_parse_opts(ac, av, NULL, NULL);
+	for (sig = SIGRTMIN; sig <= SIGRTMAX; sig++) {
+		handler_called = 0;
 
-	setup();
+		TST_EXP_PASS(set_handler(sig, tc->flags),
+				"signal=%d sa_flags=%s", sig, tc->flags_str);
 
-	for (lc = 0; TEST_LOOPING(lc); ++lc) {
+		if (!TST_PASS)
+			continue;
 
-		tst_count = 0;
+		SAFE_KILL(getpid(), sig);
 
-		for (testno = 0; testno < TST_TOTAL; ++testno) {
-
-			for (signal = SIGRTMIN; signal <= SIGRTMAX; signal++) {
-				for (flag = 0;
-				     flag <
-				      ARRAY_SIZE(test_flags); flag++) {
-
-					TEST(set_handler
-					     (signal, 0, test_flags[flag]));
-
-					if (TEST_RETURN == 0) {
-						tst_resm(TINFO, "signal: %d ",
-							 signal);
-						tst_resm(TPASS,
-							 "rt_sigaction call succeeded: result = %ld ",
-							 TEST_RETURN);
-						tst_resm(TINFO,
-							 "sa.sa_flags = %s ",
-							 test_flags_list[flag]);
-						kill(getpid(), signal);
-					} else {
-						tst_resm(TFAIL | TTERRNO,
-							 "rt_sigaction call "
-							 "failed");
-					}
-
-				}
-
-			}
-
-		}
-
+		if (handler_called)
+			tst_res(TPASS, "handler invoked for signal=%d", sig);
+		else
+			tst_res(TFAIL, "handler not invoked for signal=%d", sig);
 	}
-	cleanup();
-	tst_exit();
 }
+
+static struct tst_test test = {
+	.test = run,
+	.tcnt = ARRAY_SIZE(tcases),
+};
