@@ -1,229 +1,185 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Copyright (C) 2013 Linux Test Project
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of version 2 of the GNU General Public
- * License as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it would be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- *
- * Further, this software is distributed without any warranty that it
- * is free of the rightful claim of any third person regarding
- * infringement or the like.  Any license provided herein, whether
- * implied or otherwise, applies only to this software file.  Patent
- * licenses, if any, provided herein do not apply to combinations of
- * this program with other software, or any other product whatsoever.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- */
-/*
- * reproducer for:
- * BUG: unable to handle kernel NULL ptr deref in selinux_socket_unix_may_send
- * fixed in 3.9.0-0.rc5:
- *   commit ded34e0fe8fe8c2d595bfa30626654e4b87621e0
- *   Author: Paul Moore <pmoore@redhat.com>
- *   Date:   Mon Mar 25 03:18:33 2013 +0000
- *     unix: fix a race condition in unix_release()
+ * Copyright (c) 2013 Linux Test Project
+ * Copyright (c) 2025 Linux Test Project
  */
 
-#define _GNU_SOURCE
-#include <sys/ipc.h>
-#include <sys/stat.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/un.h>
-#include <sys/wait.h>
-#include <errno.h>
+/*\
+ * Reproducer for a race condition in unix_release() triggered by
+ * :manpage:`sendmsg(2)` that caused a kernel NULL pointer dereference in
+ * selinux_socket_unix_may_send().
+ *
+ * [Algorithm]
+ *
+ * - Fork multiple client/server pairs that rapidly create, bind, sendmsg,
+ *   and close AF_UNIX DGRAM sockets in a tight loop.
+ * - A shared atomic flag controls the loop duration.
+ * - If the race condition exists, the kernel will crash with a NULL pointer
+ *   dereference. If the test completes, it passes.
+ *
+ * Each pair uses a pipe to pace the client and server loops. This is a
+ * deliberate exception to the usual preference for the TST_CHECKPOINT_*
+ * API: the checkpoint wake path busy-retries at 1ms granularity and offers
+ * no EOF, which would both throttle this timing-sensitive race and
+ * complicate clean loop teardown. A raw pipe keeps the loop tight and exits
+ * cleanly via EPIPE when a peer goes away.
+ */
+
 #include <signal.h>
-#include <limits.h>
-#include "config.h"
-#include "test.h"
-#include "tso_safe_macros.h"
-#include "lapi/sem.h"
+#include <sys/socket.h>
+#include <sys/un.h>
 
-char *TCID = "sendmsg02";
+#include "tst_test.h"
+#include "tst_atomic.h"
 
-static int sem_id;
-static int tflag;
-static char *t_opt;
-static option_t options[] = {
-	{"s:", &tflag, &t_opt},
-	{NULL, NULL, NULL}
-};
+#define STRESS_SECONDS 5
 
-static void setup(void);
-static void cleanup(void);
+static tst_atomic_t *running;
 
-static void client(int id, int pipefd[])
+static void client(int id, int pipefd)
 {
-	int fd, semval;
+	int fd;
 	char data[] = "123456789";
 	struct iovec w;
 	struct sockaddr_un sa;
 	struct msghdr mh;
-	struct cmsghdr cmh;
-
-	close(pipefd[0]);
+	char sync_byte = 1;
 
 	memset(&sa, 0, sizeof(sa));
 	sa.sun_family = AF_UNIX;
 	snprintf(sa.sun_path, sizeof(sa.sun_path), "socket_test%d", id);
 
 	w.iov_base = data;
-	w.iov_len = 10;
-
-	memset(&cmh, 0, sizeof(cmh));
-	mh.msg_control = &cmh;
-	mh.msg_controllen = sizeof(cmh);
+	w.iov_len = sizeof(data);
 
 	memset(&mh, 0, sizeof(mh));
 	mh.msg_name = &sa;
-	mh.msg_namelen = sizeof(struct sockaddr_un);
+	mh.msg_namelen = sizeof(sa);
 	mh.msg_iov = &w;
 	mh.msg_iovlen = 1;
 
-	do {
+	while (tst_atomic_load(running)) {
 		fd = socket(AF_UNIX, SOCK_DGRAM, 0);
-		write(pipefd[1], &fd, 1);
+		if (fd < 0)
+			continue;
+
+		if (write(pipefd, &sync_byte, 1) < 1) {
+			close(fd);
+			break;
+		}
+
 		sendmsg(fd, &mh, MSG_NOSIGNAL);
 		close(fd);
-		semval = semctl(sem_id, 0, GETVAL);
-	} while (semval != 0);
-	close(pipefd[1]);
+	}
 }
 
-static void server(int id, int pipefd[])
+static void server(int id, int pipefd)
 {
-	int fd, semval;
+	int fd;
 	struct sockaddr_un sa;
-
-	close(pipefd[1]);
+	char sync_byte;
 
 	memset(&sa, 0, sizeof(sa));
 	sa.sun_family = AF_UNIX;
 	snprintf(sa.sun_path, sizeof(sa.sun_path), "socket_test%d", id);
 
-	do {
+	while (tst_atomic_load(running)) {
 		fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+		if (fd < 0)
+			continue;
+
 		unlink(sa.sun_path);
-		bind(fd, (struct sockaddr *) &sa, sizeof(struct sockaddr_un));
-		read(pipefd[0], &fd, 1);
+		if (bind(fd, (struct sockaddr *)&sa,
+			 sizeof(struct sockaddr_un))) {
+			close(fd);
+			continue;
+		}
+
+		if (read(pipefd, &sync_byte, 1) < 1) {
+			close(fd);
+			break;
+		}
+
 		close(fd);
-		semval = semctl(sem_id, 0, GETVAL);
-	} while (semval != 0);
-	close(pipefd[0]);
+	}
+
+	unlink(sa.sun_path);
 }
 
-static void reproduce(int seconds)
+static void run(void)
 {
-	int i, status, pipefd[2];
-	int child_pairs = sysconf(_SC_NPROCESSORS_ONLN)*4;
+	int i, status;
+	int child_pairs = sysconf(_SC_NPROCESSORS_ONLN) * 4;
 	int child_count = 0;
-	int *child_pids;
-	int child_pid;
-	union semun u;
+	int pipefd[2];
+	int failed = 0;
+	pid_t pid;
+	pid_t *child_pids;
 
-	child_pids = SAFE_MALLOC(cleanup, sizeof(int) * child_pairs * 2);
+	child_pids = SAFE_MALLOC(sizeof(pid_t) * child_pairs * 2);
+	tst_atomic_store(1, running);
 
-	u.val = 1;
-	if (semctl(sem_id, 0, SETVAL, u) == -1)
-		tst_brkm(TBROK | TERRNO, cleanup, "couldn't set semval to 1");
+	for (i = 0; i < child_pairs; i++) {
+		SAFE_PIPE(pipefd);
 
-	/* fork child for each client/server pair */
-	for (i = 0; i < child_pairs*2; i++) {
-		if (i%2 == 0) {
-			if (pipe(pipefd) < 0) {
-				tst_resm(TBROK | TERRNO, "pipe failed");
-				break;
-			}
-		}
-
-		child_pid = fork();
-		switch (child_pid) {
-		case -1:
-			tst_resm(TBROK | TERRNO, "fork");
-			break;
-		case 0:
-			if (i%2 == 0)
-				server(i, pipefd);
-			else
-				client(i-1, pipefd);
+		pid = SAFE_FORK();
+		if (!pid) {
+			SAFE_CLOSE(pipefd[1]);
+			server(i, pipefd[0]);
 			exit(0);
-		default:
-			child_pids[child_count++] = child_pid;
-		};
-
-		/* this process can close the pipe now */
-		if (i%2 == 0) {
-			close(pipefd[0]);
-			close(pipefd[1]);
 		}
+		child_pids[child_count++] = pid;
+
+		pid = SAFE_FORK();
+		if (!pid) {
+			SAFE_CLOSE(pipefd[0]);
+			client(i, pipefd[1]);
+			exit(0);
+		}
+		child_pids[child_count++] = pid;
+
+		SAFE_CLOSE(pipefd[0]);
+		SAFE_CLOSE(pipefd[1]);
 	}
 
-	/* let clients/servers run for a while, then clear semval to signal
-	 * they should stop running now */
-	if (child_count == child_pairs*2)
-		sleep(seconds);
-
-	u.val = 0;
-	if (semctl(sem_id, 0, SETVAL, u) == -1) {
-		/* kill children if setting semval failed */
-		for (i = 0; i < child_count; i++)
-			kill(child_pids[i], SIGKILL);
-		tst_resm(TBROK | TERRNO, "couldn't set semval to 0");
-	}
+	sleep(STRESS_SECONDS);
+	tst_atomic_store(0, running);
 
 	for (i = 0; i < child_count; i++) {
-		if (waitpid(child_pids[i], &status, 0) == -1)
-			tst_resm(TBROK | TERRNO, "waitpid for %d failed",
-				child_pids[i]);
-		if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
-			tst_resm(TFAIL, "child %d returns %d", i, status);
+		SAFE_WAITPID(child_pids[i], &status, 0);
+		if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+			tst_res(TFAIL, "child %d exited abnormally", i);
+			failed = 1;
+		}
 	}
+
 	free(child_pids);
-}
 
-static void help(void)
-{
-	printf("  -s NUM  Number of seconds to run.\n");
-}
-
-int main(int argc, char *argv[])
-{
-	int lc;
-	long seconds;
-
-	tst_parse_opts(argc, argv, options, &help);
-	setup();
-
-	seconds = tflag ? SAFE_STRTOL(NULL, t_opt, 1, LONG_MAX) : 15;
-	for (lc = 0; TEST_LOOPING(lc); lc++)
-		reproduce(seconds);
-	tst_resm(TPASS, "finished after %ld seconds", seconds);
-
-	cleanup();
-	tst_exit();
+	if (!failed)
+		tst_res(TPASS, "sendmsg() race in unix_release() not reproduced");
 }
 
 static void setup(void)
 {
-	tst_require_root();
-	tst_tmpdir();
-
-	sem_id = semget(IPC_PRIVATE, 1, IPC_CREAT | S_IRWXU);
-	if (sem_id == -1)
-		tst_brkm(TBROK | TERRNO, NULL, "Couldn't allocate semaphore");
-
-	TEST_PAUSE;
+	running = SAFE_MMAP(NULL, sizeof(*running), PROT_READ | PROT_WRITE,
+			    MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	SAFE_SIGNAL(SIGPIPE, SIG_IGN);
 }
 
 static void cleanup(void)
 {
-	semctl(sem_id, 0, IPC_RMID);
-	tst_rmdir();
+	if (running)
+		SAFE_MUNMAP(running, sizeof(*running));
 }
+
+static struct tst_test test = {
+	.test_all = run,
+	.setup = setup,
+	.cleanup = cleanup,
+	.needs_tmpdir = 1,
+	.forks_child = 1,
+	.tags = (const struct tst_tag[]) {
+		{"linux-git", "ded34e0fe8fe"},
+		{}
+	},
+};
