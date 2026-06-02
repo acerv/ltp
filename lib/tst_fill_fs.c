@@ -25,7 +25,10 @@ static void fill_random(const char *path, int verbose)
 	int fd;
 	struct statvfs fi;
 
-	statvfs(path, &fi);
+	if (statvfs(path, &fi)) {
+		tst_brk(TBROK | TERRNO, "statvfs(%s)", path);
+		return;
+	}
 
 	for (;;) {
 		len = random() % (1024 * 102400);
