@@ -144,7 +144,7 @@ const char *tst_kvcmp_distname(const char *kver)
 		return "RHEL9";
 
 	if (access(OSRELEASE_PATH, F_OK) != -1) {
-		SAFE_FILE_LINES_SCANF(NULL, OSRELEASE_PATH, "ID=%s", distname);
+		SAFE_FILE_LINES_SCANF(NULL, OSRELEASE_PATH, "ID=%63s", distname);
 
 		if (p[0] == '"') {
 			ret = distname + 1;
