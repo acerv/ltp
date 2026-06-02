@@ -188,9 +188,11 @@ const char *parse_opts(int ac, char **av, const option_t * user_optarr,
 
 		switch (opt) {
 		case '?':	/* Unknown option */
+			free(optionstr);
 			return "Unknown option";
 			break;
 		case ':':	/* Missing Arg */
+			free(optionstr);
 			return "Missing argument";
 			break;
 		case 'i':	/* Iterations */
@@ -236,6 +238,7 @@ const char *parse_opts(int ac, char **av, const option_t * user_optarr,
 				sprintf(Mesg2,
 					"parse_opts: ERROR - option:\"%c\" NOT FOUND... INTERNAL "
 					"ERROR", opt);
+				free(optionstr);
 				return (Mesg2);
 			}
 		}
