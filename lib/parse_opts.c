@@ -399,7 +399,7 @@ const char *parse_opts(int ac, char **av, const option_t * user_optarr,
 	if ((ptr = getenv("USC_LP_RECFUN")) != NULL) {
 		if (sscanf(ptr, "%i", &k) == 1 && k >= 0) {
 			STD_LP_recfun = k;
-			if (STD_bigstack != NULL)
+			if (STD_bigstack == NULL)
 				STD_bigstack =
 				    malloc(sizeof(struct usc_bigstack_t));
 			if (Debug)
@@ -412,7 +412,7 @@ const char *parse_opts(int ac, char **av, const option_t * user_optarr,
 	if ((ptr = getenv("USC_LD_RECFUN")) != NULL) {
 		if (sscanf(ptr, "%i", &k) == 1 && k >= 0) {
 			STD_LD_recfun = k;
-			if (STD_bigstack != NULL)
+			if (STD_bigstack == NULL)
 				STD_bigstack =
 				    malloc(sizeof(struct usc_bigstack_t));
 			if (Debug)
