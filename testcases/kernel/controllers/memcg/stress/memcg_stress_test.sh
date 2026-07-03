@@ -39,8 +39,15 @@ setup()
 	local mem_min=$(cat /proc/sys/vm/min_free_kbytes)
 
 	mem_min=$(( $mem_min + $mem_min/10 ))
-	[ $swap_free -gt $mem_min ] && RESERVED_MEM=0 || RESERVED_MEM=$mem_min
 	[ $mem_free -lt $mem_available ] && MEM=$mem_free || MEM=$mem_available
+
+	# Always keep headroom so that subtest 2, where a single process faults
+	# in the whole budget, cannot exhaust memory and let the OOM killer reap
+	# the test harness. Reserve 10% of the usable memory, plus the min-free
+	# watermark when there is no swap to absorb the overflow.
+	RESERVED_MEM=$(( $MEM / 10 ))
+	[ $swap_free -le $mem_min ] && RESERVED_MEM=$(( $RESERVED_MEM + $mem_min ))
+
 	MEM=$(( $MEM - $RESERVED_MEM ))
 	MEM=$(( $MEM / 1024 ))
 	RUN_TIME=$(( 15 * 60 ))
@@ -71,8 +78,12 @@ run_stress()
 	for i in $(seq 0 $(($cgroups-1))); do
 		ROD mkdir "$test_path/$i"
 		memcg_process_stress $mem_size $interval &
-		ROD echo $! \> "$test_path/$i/$task_list"
-		pids="$pids $!"
+		pid=$!
+		ROD echo $pid \> "$test_path/$i/$task_list"
+		# Make the stress process the preferred OOM victim so that memory
+		# pressure kills a stressor rather than the driver script.
+		echo 1000 > "/proc/$pid/oom_score_adj" 2>/dev/null
+		pids="$pids $pid"
 	done
 
 	for pid in $pids; do
