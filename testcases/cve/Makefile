@@ -1,11 +1,24 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (c) 2017 Linux Test Project
 
+ifneq ($(KERNELRELEASE),)
+
+obj-m := januscape_mod.o
+
+else
+
 top_srcdir		?= ../..
 
 include $(top_srcdir)/include/mk/testcases.mk
 
 CFLAGS			+= -D_GNU_SOURCE
+
+FILTER_OUT_MAKE_TARGETS	:= januscape_mod
+
+REQ_VERSION_MAJOR	:= 5
+REQ_VERSION_PATCH	:= 18
+
+MAKE_TARGETS		+= januscape_mod.ko
 
 stack_clash:	CFLAGS += -fno-optimize-sibling-calls -Wno-infinite-recursion
 
@@ -30,4 +43,7 @@ ifeq ($(HOST_CPU),x86_64)
 cve-2015-3290: CFLAGS += -mno-avx
 endif
 
+include $(top_srcdir)/include/mk/module.mk
 include $(top_srcdir)/include/mk/generic_leaf_target.mk
+
+endif
