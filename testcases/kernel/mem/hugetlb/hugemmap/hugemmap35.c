@@ -25,12 +25,14 @@
 static int fd = -1;
 static long hpage_size;
 
+#define TC(x) {x, #x}
+
 static struct tcase {
 	int flags;
 	const char *desc;
 } tcases[] = {
-	{MAP_SHARED, "MAP_SHARED"},
-	{MAP_PRIVATE, "MAP_PRIVATE"},
+	TC(MAP_SHARED),
+	TC(MAP_PRIVATE),
 };
 
 static void run(unsigned int n)
