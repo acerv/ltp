@@ -144,6 +144,8 @@
 #define VMX_VMCS_VMEXIT_INST_LEN	0x440c
 #define VMX_VMCS_VMEXIT_INST_INFO	0x440e
 #define VMX_VMCS_EXIT_QUALIFICATION	0x6400
+#define VMX_VMCS_EPTP		0x201a
+#define VMX_VMCS_EPT_POINTER	0x201a
 
 #define VMX_INTERCEPT_HLT (1 << 7)
 #define VMX_EXECCTL_TPR_SHADOW (1 << 21)
@@ -155,6 +157,20 @@
 #define VMX_EXECCTL2_VIRT_APIC_REG (1 << 8)
 #define VMX_EXECCTL2_VIRT_INTR (1 << 9)
 #define VMX_EXECCTL2_SHADOW_VMCS (1 << 14)
+#define VMX_EXECCTL2_ENABLE_EPT (1 << 1)
+
+/* EPT page table entry flags */
+#define EPT_READ_T 	(1ULL << 0)
+#define EPT_WRITE_T	(1ULL << 1)
+#define EPT_EXEC_T	(1ULL << 2)
+#define EPT_PS_T	(1ULL << 7)
+#define EPT_ACCESSED_T	(1ULL << 8)
+#define EPT_DIRTY_T	(1ULL << 9)
+
+/* EPT pointer (EPTP) encodings */
+#define EPTP_MEMTYPE_WB	(6ULL << 0)
+#define EPTP_PAGE_WALK_4	(3ULL << 3)
+#define EPTP_ENABLE_ACCESS_DIRTY	(1ULL << 6)
 
 #define VMX_EXITCTL_SAVE_DR (1 << 2)
 #define VMX_EXITCTL_X64 (1 << 9)

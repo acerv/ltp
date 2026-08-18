@@ -34,6 +34,15 @@
 #define SVM_CPUID_NMI_VIRT (1 << 25)
 #define SVM_CPUID_IBS_VIRT (1 << 26)
 
+/* AMD NPT (nested page table) entry flags */
+#define NPT_PRESENT	(1ULL << 0)
+#define NPT_WRITABLE	(1ULL << 1)
+#define NPT_USER	(1ULL << 2)
+#define NPT_ACCESSED	(1ULL << 5)
+#define NPT_DIRTY	(1ULL << 6)
+#define NPT_PS		(1ULL << 7)
+#define NPT_GMASK	(1ULL << 11)
+
 /* SVM event intercept IDs */
 #define SVM_INTERCEPT_HLT 0x78
 #define SVM_INTERCEPT_VMRUN 0x80
