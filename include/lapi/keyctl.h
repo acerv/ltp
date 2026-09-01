@@ -226,6 +226,10 @@ struct keyctl_pkey_params {
 # define KEYCTL_MOVE_EXCL 0x00000001 /* do not displace from the to-keyring */
 #endif
 
+#ifndef KEYCTL_CAPABILITIES
+# define KEYCTL_CAPABILITIES 31
+#endif
+
 #ifndef KEYCTL_PKEY_QUERY
 # define KEYCTL_PKEY_QUERY 24
 #endif
@@ -251,6 +255,50 @@ struct keyctl_pkey_params {
 # define KEYCTL_SUPPORTS_DECRYPT 0x02
 # define KEYCTL_SUPPORTS_SIGN    0x04
 # define KEYCTL_SUPPORTS_VERIFY  0x08
+#endif
+
+#ifndef KEYCTL_CAPS0_CAPABILITIES
+# define KEYCTL_CAPS0_CAPABILITIES		0x01
+#endif
+
+#ifndef KEYCTL_CAPS0_PERSISTENT_KEYRINGS
+# define KEYCTL_CAPS0_PERSISTENT_KEYRINGS	0x02
+#endif
+
+#ifndef KEYCTL_CAPS0_DIFFIE_HELLMAN
+# define KEYCTL_CAPS0_DIFFIE_HELLMAN		0x04
+#endif
+
+#ifndef KEYCTL_CAPS0_PUBLIC_KEY
+# define KEYCTL_CAPS0_PUBLIC_KEY		0x08
+#endif
+
+#ifndef KEYCTL_CAPS0_BIG_KEY
+# define KEYCTL_CAPS0_BIG_KEY			0x10
+#endif
+
+#ifndef KEYCTL_CAPS0_INVALIDATE
+# define KEYCTL_CAPS0_INVALIDATE		0x20
+#endif
+
+#ifndef KEYCTL_CAPS0_RESTRICT_KEYRING
+# define KEYCTL_CAPS0_RESTRICT_KEYRING		0x40
+#endif
+
+#ifndef KEYCTL_CAPS0_MOVE
+# define KEYCTL_CAPS0_MOVE			0x80
+#endif
+
+#ifndef KEYCTL_CAPS1_NS_KEYRING_NAME
+# define KEYCTL_CAPS1_NS_KEYRING_NAME		0x01
+#endif
+
+#ifndef KEYCTL_CAPS1_NS_KEY_TAG
+# define KEYCTL_CAPS1_NS_KEY_TAG		0x02
+#endif
+
+#ifndef KEYCTL_CAPS1_NOTIFICATIONS
+# define KEYCTL_CAPS1_NOTIFICATIONS		0x04
 #endif
 
 /* key permissions */
@@ -318,6 +366,7 @@ static inline long safe_keyctl(const char *file, const int lineno,
 	case KEYCTL_PKEY_DECRYPT:
 	case KEYCTL_PKEY_SIGN:
 	case KEYCTL_PKEY_VERIFY:
+	case KEYCTL_CAPABILITIES:
 		if (rval < 0)
 			failure = 1;
 		break;
