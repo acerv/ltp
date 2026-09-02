@@ -756,6 +756,7 @@ keyctl35 keyctl35
 keyctl36 keyctl36
 keyctl37 keyctl37
 keyctl38 keyctl38
+keyctl39 keyctl39
 
 kcmp01 kcmp01
 kcmp02 kcmp02
