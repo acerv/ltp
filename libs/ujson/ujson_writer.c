@@ -98,10 +98,12 @@ static inline int out_ch(ujson_writer *self, char ch)
 }
 
 #define ESC_FLUSH(esc_char) do {\
-	out(self, val, i); \
+	if (out(self, val, i)) \
+		return 1; \
 	val += i + 1; \
 	i = 0; \
-	out_str(self, esc_char); \
+	if (out_str(self, esc_char)) \
+		return 1; \
 } while (0)
 
 static inline int out_esc_str(ujson_writer *self, const char *val)
