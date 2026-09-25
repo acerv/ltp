@@ -179,7 +179,7 @@ static int do_padd(ujson_writer *self)
 static int newline(ujson_writer *self)
 {
 	if (out_ch(self, '\n'))
-		return 0;
+		return 1;
 
 	if (do_padd(self))
 		return 1;
@@ -261,8 +261,8 @@ int ujson_obj_finish(ujson_writer *self)
 
 	clear_depth_bit(self);
 
-	if (!first)
-		newline(self);
+	if (!first && newline(self))
+		return 1;
 
 	return out_ch(self, '}');
 }
@@ -304,8 +304,8 @@ int ujson_arr_finish(ujson_writer *self)
 
 	clear_depth_bit(self);
 
-	if (!first)
-		newline(self);
+	if (!first && newline(self))
+		return 1;
 
 	return out_ch(self, ']');
 }
