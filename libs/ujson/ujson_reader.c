@@ -135,6 +135,12 @@ static unsigned int parse_ucode_esc(ujson_reader *buf, char *str,
 	if (ucode < 0)
 		return 0;
 
+	/* Strings are NUL-terminated, an embedded NUL would truncate them */
+	if (!ucode) {
+		ujson_err(buf, "\\u0000 is not supported");
+		return 0;
+	}
+
 	if (ucode >= 0xd800 && ucode <= 0xdbff) {
 		int32_t low;
 
