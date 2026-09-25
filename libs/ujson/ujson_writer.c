@@ -424,8 +424,16 @@ static int out_writer_file(ujson_writer *self, const char *buf, size_t buf_len)
 	size_t buf_size = sizeof(writer_file->buf);
 	size_t buf_avail = buf_size - writer_file->buf_used;
 
-	if (buf_len > buf_size/4)
+	if (buf_len > buf_size / 4) {
+		if (writer_file->buf_used &&
+		    out_writer_file_write(self, writer_file->fd,
+					  writer_file->buf, writer_file->buf_used))
+			return 1;
+
+		writer_file->buf_used = 0;
+
 		return out_writer_file_write(self, writer_file->fd, buf, buf_len);
+	}
 
 	if (buf_len >= buf_avail) {
 		if (out_writer_file_write(self, writer_file->fd,
