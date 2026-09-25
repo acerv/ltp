@@ -1011,23 +1011,23 @@ ujson_reader *ujson_reader_load(const char *path)
 	int fd = open(path, O_RDONLY);
 	ujson_reader *ret;
 	ssize_t res;
-	off_t len, off = 0;
+	off_t len;
+	size_t off = 0, capacity;
 
 	if (fd < 0)
 		return NULL;
 
+	/* Some pseudo-files (e.g. seq_file in /proc) do not support SEEK_END */
 	len = lseek(fd, 0, SEEK_END);
-	if (len == (off_t)-1) {
+
+	if (len > 0 && lseek(fd, 0, SEEK_SET) == (off_t)-1) {
 		fprintf(stderr, "lseek() failed\n");
 		goto err0;
 	}
 
-	if (lseek(fd, 0, SEEK_SET) == (off_t)-1) {
-		fprintf(stderr, "lseek() failed\n");
-		goto err0;
-	}
+	capacity = len > 0 ? (size_t)len + 1 : 4096;
 
-	ret = malloc(sizeof(ujson_reader) + len + 1);
+	ret = malloc(sizeof(ujson_reader) + capacity + 1);
 	if (!ret) {
 		fprintf(stderr, "malloc() failed\n");
 		goto err0;
@@ -1035,15 +1035,24 @@ ujson_reader *ujson_reader_load(const char *path)
 
 	memset(ret, 0, sizeof(*ret));
 
-	ret->buf[len] = 0;
-	ret->len = len;
 	ret->max_depth = UJSON_RECURSION_MAX;
-	ret->json = ret->buf;
 	ret->err_print = UJSON_ERR_PRINT;
 	ret->err_print_priv = UJSON_ERR_PRINT_PRIV;
 
-	while (off < len) {
-		res = read(fd, ret->buf + off, len - off);
+	for (;;) {
+		if (off >= capacity) {
+			ujson_reader *new_ret;
+
+			capacity *= 2;
+			new_ret = realloc(ret, sizeof(ujson_reader) + capacity + 1);
+			if (!new_ret) {
+				fprintf(stderr, "realloc() failed\n");
+				goto err1;
+			}
+			ret = new_ret;
+		}
+
+		res = read(fd, ret->buf + off, capacity - off);
 		if (res < 0) {
 			fprintf(stderr, "read() failed\n");
 			goto err1;
@@ -1057,6 +1066,7 @@ ujson_reader *ujson_reader_load(const char *path)
 
 	ret->buf[off] = 0;
 	ret->len = off;
+	ret->json = ret->buf;
 
 	close(fd);
 
