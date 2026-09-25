@@ -811,12 +811,12 @@ static int any_first(ujson_reader *buf, char b)
 		return 1;
 	}
 
-	buf->depth++;
-
-	if (buf->depth > buf->max_depth) {
+	if (buf->depth >= buf->max_depth) {
 		ujson_err(buf, "Recursion too deep");
 		return 1;
 	}
+
+	buf->depth++;
 
 	return 0;
 }
