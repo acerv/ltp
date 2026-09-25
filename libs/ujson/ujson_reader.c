@@ -1032,8 +1032,14 @@ ujson_reader *ujson_reader_load(const char *path)
 			goto err1;
 		}
 
+		if (res == 0)
+			break;
+
 		off += res;
 	}
+
+	ret->buf[off] = 0;
+	ret->len = off;
 
 	close(fd);
 
