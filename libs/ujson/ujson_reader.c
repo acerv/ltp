@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <limits.h>
 
 #include "ujson_utf.h"
 #include "ujson_reader.h"
@@ -309,7 +310,7 @@ static int is_digit(char b)
 
 static int get_int(ujson_reader *buf, struct ujson_val *res)
 {
-	long val = 0;
+	unsigned long val = 0;
 	int sign = 1;
 
 	if (eatb(buf, '-')) {
@@ -325,17 +326,25 @@ static int get_int(ujson_reader *buf, struct ujson_val *res)
 		return 1;
 	}
 
+	unsigned long max = (sign < 0) ? (unsigned long)LONG_MAX + 1UL : (unsigned long)LONG_MAX;
+
 	while (is_digit(peekb(buf))) {
-		val *= 10;
-		val += getb(buf) - '0';
-		//TODO: overflow?
+		unsigned int d = getb(buf) - '0';
+
+		if (val > (max - d) / 10) {
+			ujson_err(buf, "Integer overflow");
+			return 1;
+		}
+
+		val = val * 10 + d;
 	}
 
 	if (sign < 0)
-		val = -val;
+		res->val_int = (long)(0UL - val);
+	else
+		res->val_int = (long)val;
 
-	res->val_int = val;
-	res->val_float = val;
+	res->val_float = res->val_int;
 
 	return 0;
 }
