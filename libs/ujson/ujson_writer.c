@@ -114,6 +114,10 @@ static inline int out_esc_str(ujson_writer *self, const char *val)
 
 	do {
 		next_chsz = ujson_utf8_next_chsz(val, i);
+		if (next_chsz < 0) {
+			err(self, "Invalid UTF-8 sequence");
+			return 1;
+		}
 
 		if (next_chsz == 1) {
 			switch (val[i]) {
