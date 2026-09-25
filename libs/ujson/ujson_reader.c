@@ -256,32 +256,14 @@ static int copy_str(ujson_reader *buf, char *str, size_t len)
 
 static int copy_id_str(ujson_reader *buf, char *str, size_t len)
 {
-	size_t pos = 0;
-
 	if (eatws(buf))
 		goto err0;
 
-	if (!eatb(buf, '"'))
+	if (peekb(buf) != '"')
 		goto err0;
 
-	for (;;) {
-		if (buf_empty(buf)) {
-			ujson_err(buf, "Unterminated ID string");
-			return 1;
-		}
-
-		if (eatb(buf, '"')) {
-			str[pos] = 0;
-			break;
-		}
-
-		if (pos >= len-1) {
-			ujson_err(buf, "ID string too long");
-			return 1;
-		}
-
-		str[pos++] = getb(buf);
-	}
+	if (copy_str(buf, str, len))
+		return 1;
 
 	if (eatws(buf))
 		goto err1;
