@@ -411,6 +411,7 @@ static int out_writer_file_write(ujson_writer *self, int fd, const char *buf, ss
 			return 1;
 		}
 
+		buf += ret;
 		buf_len -= ret;
 	} while (buf_len);
 
