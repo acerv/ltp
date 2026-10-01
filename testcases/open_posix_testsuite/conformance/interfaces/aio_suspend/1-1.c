@@ -7,216 +7,168 @@
  */
 
 /*
- * assertion:
+ * Test that aio_suspend() with a NULL timeout waits for pending I/O.
  *
- *	The aio_suspend() function shall suspend the calling thread until at
- *	least one of the asynchronous I/O operations referenced by the list
- *	argument has completed, until a signal interrupts the function, or,
- *	if timeout is not NULL, until the time interval specified by timeout
- *	has passed.
- *
- *	The application may determine which AIO completed by scanning operations
- *	using aio_error() and aio_return().
- *
- *	aio_supend() shall return zero after one or more AIO operations have
- *	completed.
- *
- * method: Testing for a NULL timeout
- *
- *	- write to a file
- *	- submit a list of read requests
- *	- check that the selected request has not completed
- *	- suspend on selected request
- *	- check that the selected request has completed using aio_error and
- *	  aio_return
- *
+ * Steps:
+ * 1. Queue enough asynchronous writes to fill a socket buffer.
+ * 2. Check that the last write is still pending.
+ * 3. Have a second thread wait for the main thread to sleep before
+ *    draining the socket.
+ * 4. Call aio_suspend() and check that the write has completed on return.
  */
 
-#include <sys/stat.h>
-#include <aio.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <pthread.h>
+#include <semaphore.h>
 #include <unistd.h>
 
 #include "posixtest.h"
-#include "tempfile.h"
+#include "aio_test.h"
+#include "proc.h"
 
 #define TNAME "aio_suspend/1-1.c"
+#define WRITE_COUNT 8
+#define WAIT_FOR_AIOCB (WRITE_COUNT - 1)
 
-#define NUM_AIOCBS	10
-#define BUF_SIZE	(1024*1024)
-#define WAIT_FOR_AIOCB	6
+/* Shared with the draining thread; result is read after pthread_join(). */
+static int fds[2];
+static struct aiocb aiocbs[WRITE_COUNT];
+static sem_t start;
+static int drain_result;
 
-static volatile int received_all;
-
-static void sigrt1_handler(int signum PTS_ATTRIBUTE_UNUSED,
-	siginfo_t *info PTS_ATTRIBUTE_UNUSED, void *context PTS_ATTRIBUTE_UNUSED)
+static void *drain_socket(void *arg PTS_ATTRIBUTE_UNUSED)
 {
-	received_all = 1;
+	char buf;
+	int i;
+	ssize_t ret;
+
+	while (sem_wait(&start) == -1) {
+		if (errno == EINTR)
+			continue;
+		perror(TNAME " sem_wait()");
+		exit(PTS_UNRESOLVED);
+	}
+
+	/* getpid() identifies the main thread, not this draining thread. */
+	if (tst_process_state_wait3(getpid(), 'S', 10))
+		drain_result = PTS_UNRESOLVED;
+
+	/* Leave one datagram for cleanup_aio(); discard the other payloads. */
+	for (i = 0; i < WRITE_COUNT - 1; i++) {
+		do {
+			ret = read(fds[1], &buf, sizeof(buf));
+		} while (ret == -1 && errno == EINTR);
+
+		if (ret != sizeof(buf)) {
+			printf(TNAME " Error reading socket: %zd (%s)\n",
+			       ret, ret == -1 ? strerror(errno) : "short read");
+			exit(PTS_UNRESOLVED);
+		}
+	}
+
+	return NULL;
 }
 
 int test_main(int argc PTS_ATTRIBUTE_UNUSED, char **argv PTS_ATTRIBUTE_UNUSED)
 {
-	char tmpfname[PATH_MAX];
-	int fd;
+	const struct aiocb *list[] = {NULL, &aiocbs[WAIT_FOR_AIOCB]};
+	pthread_t thread;
+	int i, ret, err;
+	int result = PTS_PASS;
+	ssize_t len;
 
-	struct aiocb **aiocbs;
-	struct aiocb *plist[2];
-	char *bufs;
-	struct sigaction action;
-	struct sigevent event;
-	int errors = 0;
-	int ret;
-	int err;
-	int i;
-
-	if (sysconf(_SC_ASYNCHRONOUS_IO) < 200112L)
+	if (sysconf(_SC_ASYNCHRONOUS_IO) < 200112L) {
+		printf(TNAME " Test UNSUPPORTED: asynchronous I/O\n");
 		return PTS_UNSUPPORTED;
+	}
 
-	PTS_GET_TMP_FILENAME(tmpfname, "pts_aio_suspend_1_1");
-	unlink(tmpfname);
+	if (setup_aio(TNAME, fds, aiocbs, WRITE_COUNT))
+		return PTS_UNRESOLVED;
 
-	fd = open(tmpfname, O_CREAT | O_RDWR | O_EXCL, S_IRUSR | S_IWUSR);
-
-	if (fd == -1) {
-		printf(TNAME " Error at open(): %s\n", strerror(errno));
+	if (sem_init(&start, 0, 0) == -1) {
+		perror(TNAME " sem_init()");
 		exit(PTS_UNRESOLVED);
 	}
 
-	unlink(tmpfname);
-
-	bufs = malloc(NUM_AIOCBS * BUF_SIZE);
-
-	if (bufs == NULL) {
-		printf(TNAME " Error at malloc(): %s\n", strerror(errno));
-		close(fd);
-		exit(PTS_UNRESOLVED);
-	}
-
-	if (write(fd, bufs, NUM_AIOCBS * BUF_SIZE) != (NUM_AIOCBS * BUF_SIZE)) {
-		printf(TNAME " Error at write(): %s\n", strerror(errno));
-		free(bufs);
-		close(fd);
-		exit(PTS_UNRESOLVED);
-	}
-
-	aiocbs = malloc(sizeof(struct aiocb *) * NUM_AIOCBS);
-
-	/* Queue up a bunch of aio reads */
-	for (i = 0; i < NUM_AIOCBS; i++) {
-		aiocbs[i] = malloc(sizeof(struct aiocb));
-		memset(aiocbs[i], 0, sizeof(struct aiocb));
-
-		aiocbs[i]->aio_fildes = fd;
-		aiocbs[i]->aio_offset = i * BUF_SIZE;
-		aiocbs[i]->aio_buf = &bufs[i * BUF_SIZE];
-		aiocbs[i]->aio_nbytes = BUF_SIZE;
-		aiocbs[i]->aio_lio_opcode = LIO_READ;
-	}
-
-	/* Use SIGRTMIN + 1 for list completion */
-	event.sigev_notify = SIGEV_SIGNAL;
-	event.sigev_signo = SIGRTMIN + 1;
-	event.sigev_value.sival_ptr = NULL;
-
-	/* Setup handler for list completion */
-	action.sa_sigaction = sigrt1_handler;
-	sigemptyset(&action.sa_mask);
-	action.sa_flags = SA_SIGINFO | SA_RESTART;
-	sigaction(SIGRTMIN + 1, &action, NULL);
-
-	/* Setup suspend list */
-	plist[0] = NULL;
-	plist[1] = aiocbs[WAIT_FOR_AIOCB];
-
-	/* Submit request list */
-	ret = lio_listio(LIO_NOWAIT, aiocbs, NUM_AIOCBS, &event);
+	ret = pthread_create(&thread, NULL, drain_socket, NULL);
 	if (ret) {
-		printf(TNAME " Error at lio_listio() %d: %s\n",
-		       errno, strerror(errno));
-		for (i = 0; i < NUM_AIOCBS; i++)
-			free(aiocbs[i]);
-		free(bufs);
-		free(aiocbs);
-		close(fd);
+		printf(TNAME " pthread_create(): %s\n", strerror(ret));
 		exit(PTS_UNRESOLVED);
 	}
 
-	/* Check selected request has not completed yet */
-	err = aio_error(aiocbs[WAIT_FOR_AIOCB]);
-	if (!err) {
-		printf(TNAME " Error : AIOCB %d already completed before "
-		       "suspend\n", WAIT_FOR_AIOCB);
-		for (i = 0; i < NUM_AIOCBS; i++)
-			free(aiocbs[i]);
-		free(bufs);
-		free(aiocbs);
-		close(fd);
-		exit(PTS_UNRESOLVED);
-	}
-
-	/* Suspend on selected request */
-	ret = aio_suspend((const struct aiocb **)plist, 2, NULL);
-	if (ret) {
-		printf(TNAME " Error at aio_suspend() %d: %s\n",
-		       errno, strerror(errno));
-		for (i = 0; i < NUM_AIOCBS; i++)
-			free(aiocbs[i]);
-		free(bufs);
-		free(aiocbs);
-		close(fd);
-		exit(PTS_FAIL);
-	}
-
-	/* Check selected request has completed */
-	err = aio_error(aiocbs[WAIT_FOR_AIOCB]);
-	ret = aio_return(aiocbs[WAIT_FOR_AIOCB]);
-
-	if ((err != 0) && (ret != BUF_SIZE)) {
-		printf(TNAME " Error : AIOCB %d should have completed"
-		       " after suspend\n", WAIT_FOR_AIOCB);
-		for (i = 0; i < NUM_AIOCBS; i++)
-			free(aiocbs[i]);
-		free(bufs);
-		free(aiocbs);
-		close(fd);
-		exit(PTS_FAIL);
-	}
-
-	/* Wait for list processing completion */
-	while (!received_all)
-		sleep(1);
-
-	/* Check return code and free things */
-	for (i = 0; i < NUM_AIOCBS; i++) {
-		if (i == WAIT_FOR_AIOCB)
-			continue;
-
-		err = aio_error(aiocbs[i]);
-		ret = aio_return(aiocbs[i]);
-
-		if ((err != 0) && (ret != BUF_SIZE)) {
-			printf(TNAME " req %d: error = %d - return = %d\n",
-			       i, err, ret);
-			errors++;
+	for (i = 0; i < WRITE_COUNT; i++) {
+		if (aio_write(&aiocbs[i]) == -1) {
+			perror(TNAME " aio_write()");
+			exit(PTS_UNRESOLVED);
 		}
-
-		free(aiocbs[i]);
 	}
 
-	free(bufs);
-	free(aiocbs);
+	err = aio_error(&aiocbs[WAIT_FOR_AIOCB]);
+	if (err != EINPROGRESS) {
+		printf(TNAME " Expected pending write, got status %d\n", err);
+		exit(PTS_UNRESOLVED);
+	}
 
-	close(fd);
+	/* After releasing the drainer, only aio_suspend() should block us. */
+	if (sem_post(&start) == -1) {
+		perror(TNAME " sem_post()");
+		exit(PTS_UNRESOLVED);
+	}
 
-	if (errors != 0)
+	ret = aio_suspend(list, 2, NULL);
+	if (ret) {
+		perror(TNAME " aio_suspend()");
 		exit(PTS_FAIL);
+	}
 
-	printf("Test PASSED\n");
+	err = aio_error(&aiocbs[WAIT_FOR_AIOCB]);
+	if (err != 0) {
+		printf(TNAME " Test FAILED: write status after suspend: %d\n", err);
+		exit(PTS_FAIL);
+	}
 
-	return PTS_PASS;
+	ret = pthread_join(thread, NULL);
+	if (ret) {
+		printf(TNAME " pthread_join(): %s\n", strerror(ret));
+		exit(PTS_UNRESOLVED);
+	}
+	if (drain_result != PTS_PASS)
+		result = drain_result;
+
+	/* All writes can now complete, regardless of their execution order. */
+	for (i = 0; i < WRITE_COUNT; i++) {
+		const struct aiocb *req = &aiocbs[i];
+
+		while ((err = aio_error(req)) == EINPROGRESS) {
+			if (aio_suspend(&req, 1, NULL) == -1 && errno != EINTR) {
+				perror(TNAME " aio_suspend() during cleanup");
+				exit(PTS_UNRESOLVED);
+			}
+		}
+		if (err) {
+			printf(TNAME " Test FAILED: write %d status %d\n", i, err);
+			exit(PTS_FAIL);
+		}
+	}
+
+	/* Only one datagram remains; the helper frees its buffer and sockets. */
+	cleanup_aio(fds, &aiocbs[WAIT_FOR_AIOCB], 1);
+	for (i = 0; i < WRITE_COUNT; i++) {
+		len = aio_return(&aiocbs[i]);
+		if (len != (ssize_t)aiocbs[i].aio_nbytes) {
+			printf(TNAME " Test FAILED: write %d returned %zd, expected %zu\n",
+			       i, len, aiocbs[i].aio_nbytes);
+			result = PTS_FAIL;
+		}
+		if (i != WAIT_FOR_AIOCB)
+			free((void *)aiocbs[i].aio_buf);
+	}
+
+	if (sem_destroy(&start) == -1) {
+		perror(TNAME " sem_destroy()");
+		result = PTS_UNRESOLVED;
+	}
+	if (result == PTS_PASS)
+		printf("Test PASSED\n");
+
+	return result;
 }
