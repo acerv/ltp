@@ -54,3 +54,6 @@ FILTER_OUT_DIRS		+= containers controllers device-drivers fs io ipc mem \
 endif
 
 include $(top_srcdir)/include/mk/generic_trunk_target.mk
+
+# libkerntest.a in lib/ must be built before syscalls and mem consumers
+syscalls-all mem-all: lib-all
